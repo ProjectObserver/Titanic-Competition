@@ -12,6 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Included Package
 ```{r includedPackage}
 library(caret)
+library(doMC)
+
 ```
 
 ## Load Data
@@ -31,8 +33,14 @@ ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
 ds$title = as.factor(ds$title)
 
 # using Linear Regression to Predict Age for missings
-m<-lm(Age~title:SibSp+title:Pclass, data=ds)
+m<-lm(Age~title:SibSp+ title:Pclass+ title:Parch + title:Fare:Pclass, data=ds)
+summary(m)
 ds$AgePred <- predict.lm(m, ds)
+# check fit
+ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
+ds$AgePredDecile = cut(ds$AgePred, c(-2000,14,19,22,25,28,32,36,41,50,200))
+table(ds$AgeDecile[!is.na(ds$Age)],ds$AgePredDecile[!is.na(ds$Age)])
+# replace NA
 ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
 
 # cut by decile
@@ -43,8 +51,11 @@ ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
 ```{r Modeling, message=F}
 ctrl = trainControl(method="repeatedcv", number=10, repeats=5, selectionFunction = "oneSE")
 in_train = createDataPartition(ds$Survived, p=.75, list=FALSE)
-tgbm = train(Survived ~ Sex + AgeDecile + Pclass, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
-trf = train(Survived ~ Sex + AgeDecile + Pclass, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+
+registerDoMC(cores = 5)
+tgbm = train(Survived ~ Sex + AgeDecile:Pclass + SibSp, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+trf = train(Survived ~ Sex + AgeDecile:Pclass  + SibSp, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+
 ```
 
 ## Resampling
@@ -85,7 +96,7 @@ dtest$AgeDecile = cut(dtest$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
 
 dtest$pred.tgbm = predict(tgbm, dtest, "raw")
 
-dSummit<-as.data.frame(cbind(dtest$PassengerId,dtest$pred.tgbm))
+dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.tgbm)-1))
 
 names(dSummit)=c("PassengerId","Survived")
 write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
