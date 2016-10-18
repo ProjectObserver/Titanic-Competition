@@ -1,0 +1,52 @@
+---
+title: "Titantic Competiton"
+author: "Observer"
+date: "October 17, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Included Package
+```{r includedPackage}
+library(caret)
+```
+
+## Load Data
+```{r loadData}
+ds<-read.csv("./data/train.csv", header = T)
+ds$Survived = as.factor(ds$Survived)
+ds$Pclass = as.factor(ds$Pclass)
+ds$AgeDecile = quantile(ds$Age, prob=seq(0, 1, 0.1), na.rm=T)
+```
+
+## Modeling
+```{r Modeling, message=F}
+ctrl = trainControl(method="repeatedcv", number=10, repeats=5, selectionFunction = "oneSE")
+in_train = createDataPartition(ds$Survived, p=.75, list=FALSE)
+tgbm = train(Survived ~ Sex + AgeDecile + Pclass, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+trf = train(Survived ~ Sex + AgeDecile + Pclass, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+```
+
+## Resampling
+```{r Resampling}
+resampls = resamples(list(RF = trf,
+                          GBM = tgbm))
+
+difValues = diff(resampls)
+summary(difValues)
+```
+
+## Test
+```{r Test}
+test = ds[-in_train,]
+test$pred.rf = predict(trf, test, "raw")
+confusionMatrix(test$pred.rf, test$Survived)
+
+test = ds[-in_train,]
+test$pred.rf = predict(tgbm, test, "raw")
+confusionMatrix(test$pred.rf, test$Survived)
+
+```
