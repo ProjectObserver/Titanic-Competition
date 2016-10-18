@@ -16,10 +16,27 @@ library(caret)
 
 ## Load Data
 ```{r loadData}
+dtest<-read.csv("./data/test.csv", header = T)
 ds<-read.csv("./data/train.csv", header = T)
 ds$Survived = as.factor(ds$Survived)
 ds$Pclass = as.factor(ds$Pclass)
-ds$AgeDecile = quantile(ds$Age, prob=seq(0, 1, 0.1), na.rm=T)
+
+# Get the title as predictor for Age
+ds$title=""
+ds$title[grepl("Mr\\.", ds$Name)] = "Mr"
+ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
+ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
+ds$title[grepl("Master\\.", ds$Name)] = "Master"
+ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
+ds$title = as.factor(ds$title)
+
+# using Linear Regression to Predict Age for missings
+m<-lm(Age~title:SibSp+title:Pclass, data=ds)
+ds$AgePred <- predict.lm(m, ds)
+ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
+
+# cut by decile
+ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
 ```
 
 ## Modeling
@@ -39,14 +56,37 @@ difValues = diff(resampls)
 summary(difValues)
 ```
 
-## Test
-```{r Test}
+## Verify
+```{r Verify}
 test = ds[-in_train,]
 test$pred.rf = predict(trf, test, "raw")
 confusionMatrix(test$pred.rf, test$Survived)
 
 test = ds[-in_train,]
-test$pred.rf = predict(tgbm, test, "raw")
-confusionMatrix(test$pred.rf, test$Survived)
+test$pred.tgbm = predict(tgbm, test, "raw")
+confusionMatrix(test$pred.tgbm, test$Survived)
 
+```
+
+## Test
+```{r Test}
+dtest$Pclass = as.factor(dtest$Pclass)
+
+dtest$title=""
+dtest$title[grepl("Mr\\.", dtest$Name)] = "Mr"
+dtest$title[grepl("Mrs\\.", dtest$Name)] = "Mrs"
+dtest$title[grepl("Miss\\.", dtest$Name)] = "Miss"
+dtest$title[grepl("Master\\.", dtest$Name)] = "Master"
+dtest$title[grepl("Dr\\.", dtest$Name)] = "Dr"
+dtest$title = as.factor(dtest$title)
+dtest$AgePred <- predict.lm(m, dtest)
+dtest$Age[is.na(dtest$Age)]<-dtest$AgePred[is.na(dtest$Age)]
+dtest$AgeDecile = cut(dtest$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
+
+dtest$pred.tgbm = predict(tgbm, dtest, "raw")
+
+dSummit<-as.data.frame(cbind(dtest$PassengerId,dtest$pred.tgbm))
+
+names(dSummit)=c("PassengerId","Survived")
+write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
 ```
