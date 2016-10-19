@@ -13,11 +13,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r includedPackage}
 library(caret)
 library(doMC)
-
 ```
 
 ## Load Data
-```{r loadData}
+```{r loadData, message=F, warning=F}
 dtest<-read.csv("./data/test.csv", header = T)
 ds<-read.csv("./data/train.csv", header = T)
 ds$Survived = as.factor(ds$Survived)
@@ -29,11 +28,31 @@ ds$title[grepl("Mr\\.", ds$Name)] = "Mr"
 ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
 ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
 ds$title[grepl("Master\\.", ds$Name)] = "Master"
-ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
+ds$title[grepl("Dr\\.", ds$Name)] = "Mr"
 ds$title = as.factor(ds$title)
 
+#library(ggplot2)
+#ggplot(ds, aes(title,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(SibSp,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(Pclass,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(Parch,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(Embarked,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(Survived,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(Fare,Age)) + stat_smooth() + geom_point()
+#ggplot(ds, aes(x=SibSp, colour=Survived)) + geom_density()
+##ggplot(ds, aes(Survived,Embarked)) +geom_jitter()+ stat_smooth() + geom_point()
+
+
+ds$noSibSp = (ds$SibSp == 0)
+ds$isSingle <- as.factor(ds$Parch==0)
+ds$hasCabin = as.factor(ds$Cabin=="")
+ds$CabinLet = as.factor(substr(ds$Cabin, 1, 1))
+
 # using Linear Regression to Predict Age for missings
-m<-lm(Age~title:SibSp+ title:Pclass+ title:Parch + title:Fare:Pclass, data=ds)
+# if isSingle and title is Miss, could be older
+# if isSingle and has a lot of SibSp, could be younger
+# if Pclass is controll, Fare should reflect the age
+m<-lm(Age~isSingle*title + isSingle*SibSp + Pclass + Fare , data=ds)
 summary(m)
 ds$AgePred <- predict.lm(m, ds)
 # check fit
@@ -48,14 +67,16 @@ ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
 ```
 
 ## Modeling
-```{r Modeling, message=F}
-ctrl = trainControl(method="repeatedcv", number=10, repeats=5, selectionFunction = "oneSE")
+```{r Modeling, message=F, warning=F}
+ctrl = trainControl(method="repeatedcv", number=10, repeats=10, selectionFunction = "oneSE")
 in_train = createDataPartition(ds$Survived, p=.75, list=FALSE)
 
 registerDoMC(cores = 5)
-tgbm = train(Survived ~ Sex + AgeDecile:Pclass + SibSp, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
-trf = train(Survived ~ Sex + AgeDecile:Pclass  + SibSp, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+tgbm = train(Survived ~ Sex + CabinLet:Pclass + AgeDecile:SibSp + title:isSingle, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+trf = train(Survived ~ Sex + CabinLet:Pclass  + AgeDecile:SibSp + title:isSingle, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE, ntree=500)
 
+varImp(tgbm)
+varImp(trf)
 ```
 
 ## Resampling
@@ -77,18 +98,23 @@ test = ds[-in_train,]
 test$pred.tgbm = predict(tgbm, test, "raw")
 confusionMatrix(test$pred.tgbm, test$Survived)
 
+
 ```
 
 ## Test
 ```{r Test}
+dtest$hasCabin = as.factor(dtest$Cabin=="")
 dtest$Pclass = as.factor(dtest$Pclass)
+dtest$isSingle <- as.factor(dtest$Parch==0)
+dtest$CabinLet = as.factor(substr(dtest$Cabin, 1, 1))
+dtest$noSibSp = (dtest$SibSp == 0)
 
 dtest$title=""
 dtest$title[grepl("Mr\\.", dtest$Name)] = "Mr"
 dtest$title[grepl("Mrs\\.", dtest$Name)] = "Mrs"
 dtest$title[grepl("Miss\\.", dtest$Name)] = "Miss"
 dtest$title[grepl("Master\\.", dtest$Name)] = "Master"
-dtest$title[grepl("Dr\\.", dtest$Name)] = "Dr"
+dtest$title[grepl("Dr\\.", dtest$Name)] = "Mr"
 dtest$title = as.factor(dtest$title)
 dtest$AgePred <- predict.lm(m, dtest)
 dtest$Age[is.na(dtest$Age)]<-dtest$AgePred[is.na(dtest$Age)]
