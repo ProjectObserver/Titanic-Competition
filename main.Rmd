@@ -19,6 +19,27 @@ library(doMC)
 ```{r loadData, message=F, warning=F}
 dtest<-read.csv("./data/test.csv", header = T)
 ds<-read.csv("./data/train.csv", header = T)
+```
+
+## EDA
+```{r EDA, message=F, warning=F}
+library(ggplot2)
+ggplot(ds, aes(SibSp,Age)) + stat_smooth() + geom_point()
+ggplot(ds, aes(Pclass,Age)) + stat_smooth() + geom_point()
+ggplot(ds, aes(Parch,Age)) + stat_smooth() + geom_point()
+ggplot(ds, aes(Embarked,Age)) + stat_smooth() + geom_point()
+ggplot(ds, aes(Fare,Age)) + stat_smooth() + geom_point()
+
+ggplot(ds, aes(Survived,Embarked)) +geom_jitter() + geom_point()
+ggplot(ds, aes(Survived,SibSp)) +geom_jitter() + geom_point()
+ggplot(ds, aes(Survived,Pclass)) +geom_jitter() + geom_point()
+ggplot(ds, aes(Survived,Parch)) +geom_jitter() + geom_point()
+ggplot(ds, aes(x=Age, color=Survived)) + geom_density()
+```
+
+## Data Manupulation
+```{r ManupulateData, message=F, warning=F}
+
 ds$Survived = as.factor(ds$Survived)
 ds$Pclass = as.factor(ds$Pclass)
 
@@ -29,21 +50,14 @@ ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
 ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
 ds$title[grepl("Master\\.", ds$Name)] = "Master"
 ds$title[grepl("Dr\\.", ds$Name)] = "Mr"
+ds$title[(ds$Sex=="male") & (ds$Age > 12) & (ds$title=="")]="Mr"
+ds$title[(ds$Sex=="male") & (ds$Age <= 11) & (ds$title=="")]="Master"
 ds$title = as.factor(ds$title)
+ggplot(ds, aes(title,Age)) + geom_jitter() + geom_point()
+ggplot(ds, aes(Survived,title)) + geom_jitter() + geom_point()
 
-#library(ggplot2)
-#ggplot(ds, aes(title,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(SibSp,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(Pclass,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(Parch,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(Embarked,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(Survived,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(Fare,Age)) + stat_smooth() + geom_point()
-#ggplot(ds, aes(x=SibSp, colour=Survived)) + geom_density()
-##ggplot(ds, aes(Survived,Embarked)) +geom_jitter()+ stat_smooth() + geom_point()
-
-
-ds$noSibSp = (ds$SibSp == 0)
+# Create dummy variable isSingle... 
+ds$noSibSp = as.factor(ds$SibSp == 0)
 ds$isSingle <- as.factor(ds$Parch==0)
 ds$hasCabin = as.factor(ds$Cabin=="")
 ds$CabinLet = as.factor(substr(ds$Cabin, 1, 1))
@@ -56,25 +70,29 @@ m<-lm(Age~isSingle*title + isSingle*SibSp + Pclass + Fare , data=ds)
 summary(m)
 ds$AgePred <- predict.lm(m, ds)
 # check fit
-ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
-ds$AgePredDecile = cut(ds$AgePred, c(-2000,14,19,22,25,28,32,36,41,50,200))
+ds$AgeDecile = cut(ds$Age, c(-2000,11,18,30,60,200))
+ds$AgePredDecile = cut(ds$AgePred, c(-2000,11,18,30,60,200))
 table(ds$AgeDecile[!is.na(ds$Age)],ds$AgePredDecile[!is.na(ds$Age)])
 # replace NA
 ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
 
 # cut by decile
-ds$AgeDecile = cut(ds$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
+ds$AgeDecile = cut(ds$Age, c(-2000,11,18,30,60,200))
 ```
 
 ## Modeling
 ```{r Modeling, message=F, warning=F}
-ctrl = trainControl(method="repeatedcv", number=10, repeats=10, selectionFunction = "oneSE")
+ctrl = trainControl(method="repeatedcv", number=10, repeats=2, selectionFunction = "oneSE")
 in_train = createDataPartition(ds$Survived, p=.75, list=FALSE)
 
-registerDoMC(cores = 5)
-tgbm = train(Survived ~ Sex + CabinLet:Pclass + AgeDecile:SibSp + title:isSingle, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
-trf = train(Survived ~ Sex + CabinLet:Pclass  + AgeDecile:SibSp + title:isSingle, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE, ntree=500)
+# using multiple processing... comment this if it does not work
+registerDoMC(cores = 7)
 
+# train model using two methods
+tgbm = train(Survived ~ Sex + CabinLet:Pclass + AgeDecile:SibSp + title:isSingle, data=ds, method="gbm", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE)
+trf = train(Survived ~ Sex + CabinLet:Pclass  + AgeDecile:SibSp + title:isSingle, data=ds, method="rf", metric="Kappa", trControl=ctrl, subset = in_train, verbose=FALSE, ntree=200)
+
+## Variables importance
 varImp(tgbm)
 varImp(trf)
 ```
@@ -88,7 +106,7 @@ difValues = diff(resampls)
 summary(difValues)
 ```
 
-## Verify
+## Verify using the portion of training set
 ```{r Verify}
 test = ds[-in_train,]
 test$pred.rf = predict(trf, test, "raw")
@@ -97,33 +115,35 @@ confusionMatrix(test$pred.rf, test$Survived)
 test = ds[-in_train,]
 test$pred.tgbm = predict(tgbm, test, "raw")
 confusionMatrix(test$pred.tgbm, test$Survived)
-
-
 ```
 
-## Test
-```{r Test}
+## Generate summit file for competition
+```{r Generate_Summit}
+
+## Repeat the same treatment as the training set
 dtest$hasCabin = as.factor(dtest$Cabin=="")
 dtest$Pclass = as.factor(dtest$Pclass)
 dtest$isSingle <- as.factor(dtest$Parch==0)
 dtest$CabinLet = as.factor(substr(dtest$Cabin, 1, 1))
-dtest$noSibSp = (dtest$SibSp == 0)
-
+dtest$noSibSp = as.factor(dtest$SibSp == 0)
 dtest$title=""
 dtest$title[grepl("Mr\\.", dtest$Name)] = "Mr"
 dtest$title[grepl("Mrs\\.", dtest$Name)] = "Mrs"
 dtest$title[grepl("Miss\\.", dtest$Name)] = "Miss"
 dtest$title[grepl("Master\\.", dtest$Name)] = "Master"
 dtest$title[grepl("Dr\\.", dtest$Name)] = "Mr"
+dtest$title[(dtest$Sex=="male") & (dtest$Age > 12) & (dtest$title=="")]="Mr"
+dtest$title[(dtest$Sex=="male") & (dtest$Age <= 11) & (dtest$title=="")]="Master"
 dtest$title = as.factor(dtest$title)
 dtest$AgePred <- predict.lm(m, dtest)
 dtest$Age[is.na(dtest$Age)]<-dtest$AgePred[is.na(dtest$Age)]
-dtest$AgeDecile = cut(dtest$Age, c(-2000,14,19,22,25,28,32,36,41,50,200))
+dtest$AgeDecile = cut(dtest$Age, c(-2000,11,18,30,60,200))
 
+## Run the data through the model
 dtest$pred.tgbm = predict(tgbm, dtest, "raw")
 
+## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.tgbm)-1))
-
 names(dSummit)=c("PassengerId","Survived")
 write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
 ```
