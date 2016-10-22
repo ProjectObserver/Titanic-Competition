@@ -21,6 +21,7 @@ library(data.table)
 ```{r loadData, message=F, warning=F}
 dtest<-read.csv("./data/test.csv", header = T)
 ds<-read.csv("./data/train.csv", header = T)
+ds$Survived = as.factor(ds$Survived)
 ```
 
 ## EDA
@@ -40,88 +41,128 @@ ggplot(ds_m, aes(Survived,SibSp)) +geom_jitter() + geom_point(alpha=0.1)
 ggplot(ds_m, aes(Survived,Pclass)) +geom_jitter() + geom_point(alpha=0.1)
 ggplot(ds_m, aes(Survived,Parch)) +geom_jitter() + geom_point(alpha=0.1)
 ggplot(ds_m, aes(x=Age, fill=Survived, colour=Survived)) + geom_density(adjust=1/2, alpha=0.1)
+
 ```
 
 ## Support function
 ```{r Support, message=F, warning=F}
+#### function to count number of space in the string
 getCountSp <- function(str){
   m<-gregexpr("\\s", str, perl=T)
   return(unlist(length(regmatches(str,m)[[1]])))
 }
-```
 
+#### function to create variables before the Age prediction
+pretreatment <- function(ds){
+  ds$Pclass = as.factor(ds$Pclass)
+  # Get the title as predictor for Age
+  ds$title=""
+  ds$title[grepl("Mr\\.", ds$Name)] = "Mr"
+  ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
+  ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
+  ds$title[grepl("Master\\.", ds$Name)] = "Master"
+  ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
+  ds$title[(ds$Sex=="male") & (ds$Age > 12) & (ds$title=="")]="Mr"
+  ds$title[(ds$Sex=="male") & (ds$Age <= 11) & (ds$title=="")]="Master"
+  ds$title[(ds$Sex=="female") & (ds$Age <= 11) & (ds$title=="")]="Miss"
+  ds$title = as.factor(ds$title)
+  # Create dummy variable isSingle... 
+  ds$noSibSp = as.factor(ds$SibSp == 0)
+  ds$isSingle <- as.factor(ds$Parch==0)
+  ds$isSinglenoSibSp <- as.factor(ds$SibSp == 0 & ds$Parch==0 )
+  ds$hasCabin = as.factor(ds$Cabin=="")
+  ds$CabinLet = as.factor(substr(ds$Cabin, 1, 1))
+  ds$CabinCnt = as.integer(!ds$Cabin=="") + sapply(ds$Cabin,getCountSp, simplify=T)
+  ds$familySz = ds$SibSp + ds$Parch
+
+  ds$nFare[ds$Pclass==1] = (ds$Fare[ds$Pclass==1] - mean(ds$Fare[ds$Pclass==1]))/mean(ds$Fare[ds$Pclass==1])
+  ds$nFare[ds$Pclass==2] = (ds$Fare[ds$Pclass==2] - mean(ds$Fare[ds$Pclass==2]))/mean(ds$Fare[ds$Pclass==2])
+  ds$nFare[ds$Pclass==3] = (ds$Fare[ds$Pclass==3] - mean(ds$Fare[ds$Pclass==3]))/mean(ds$Fare[ds$Pclass==3])
+  ds$nFare[is.na(ds$nFare)] = 0
+  return(ds)
+}
+
+#### function to do Age Prediction
+md_Age <- function(ds) {
+  # Predict Age for missings
+  # if isSingle and title is Miss, could be older
+  # if isSingle and has a lot of SibSp, could be younger
+  # if Pclass is controll, Fare should reflect the age
+  ds_m <- ds[!is.na(ds$Age),]
+  trf_Age<- randomForest(Age ~ title + familySz + SibSp + Parch + Pclass + nFare + Fare + isSinglenoSibSp + I((SibSp+0.01)/(SibSp+Parch+0.01)) , data=ds_m, importance=TRUE,proximity=TRUE,ntree=400)
+  # check fit
+  return(trf_Age)
+}
+
+#### function to create variables after the Age prediction
+psttreatment <- function(trf_Age, ds) {
+  ds$AgePred <- predict(trf_Age, ds)
+  ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,59,200))
+  ds$AgePredDecile = cut(ds$AgePred, c(-2000,11,17,30,59,200))
+  table(ds$AgeDecile[!is.na(ds$Age)],ds$AgePredDecile[!is.na(ds$Age)])
+  # replace NA
+  ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
+  # cut by decile
+  ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,59,200))
+  return(ds)
+}
+
+#### function to generate lookup for probablilty of survival to Cabin
+generate_pSurvived_by_Cabin<-function(dtf){
+  # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
+  dtf<-data.frame(Cabin=dtr$Cabin, Survived=as.integer(dtr$Survived) -1)
+  dt<-data.table(dtf[!dtf$Cabin=="",])
+  lookup<-dt[,list(p_Survived=mean(Survived)), by=Cabin]
+  return(lookup)
+}
+
+#### function to add p_Survived into data set
+add_p_Survived <- function(dtr,lookup){
+  dtr <- merge(x=dtr, y=lookup, by="Cabin", all.x=T)
+  dtr$p_Survived[is.na(dtr$p_Survived)] = 0.5
+  return(dtr)
+}
+
+#### function to run the prediction
+run_prediction <- function(tgbm, tgbm2, tada, trf, tsvm, dtest){
+  ## Run the data through the model
+  dtest$pred.tgbm = predict(tgbm, dtest, "raw")
+  dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
+  dtest$pred.tada = predict(tada, dtest, "raw")
+  dtest$pred.rf = predict(trf, dtest, "raw")
+  dtest$pred.svm = predict(tsvm, dtest, "raw")
+  return(dtest)
+}
+```
 
 ## Data Manupulation
 ```{r ManupulateData, message=F, warning=F}
+# using multiple processing... comment this if it does not work
+registerDoMC(cores = 6)
 
-ds$Survived = as.factor(ds$Survived)
-ds$Pclass = as.factor(ds$Pclass)
-
-# Get the title as predictor for Age
-ds$title=""
-ds$title[grepl("Mr\\.", ds$Name)] = "Mr"
-ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
-ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
-ds$title[grepl("Master\\.", ds$Name)] = "Master"
-ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
-ds$title[(ds$Sex=="male") & (ds$Age > 12) & (ds$title=="")]="Mr"
-ds$title[(ds$Sex=="male") & (ds$Age <= 11) & (ds$title=="")]="Master"
-ds$title[(ds$Sex=="female") & (ds$Age <= 11) & (ds$title=="")]="Miss"
-ds$title = as.factor(ds$title)
+ds<-pretreatment(ds)
+trf_Age <- md_Age(ds)
 ggplot(ds, aes(title,Age)) + geom_jitter() + geom_point()
 ggplot(ds, aes(Survived,title)) + geom_jitter() + geom_point()
+ds<-psttreatment(trf_Age,ds)
 
-# Create dummy variable isSingle... 
-ds$noSibSp = as.factor(ds$SibSp == 0)
-ds$isSingle <- as.factor(ds$Parch==0)
-ds$isSinglenoSibSp <- as.factor(ds$SibSp == 0 & ds$Parch==0 )
-ds$hasCabin = as.factor(ds$Cabin=="")
-ds$CabinLet = as.factor(substr(ds$Cabin, 1, 1))
-ds$CabinCnt = as.integer(!ds$Cabin=="") + sapply(ds$Cabin,getCountSp, simplify=T)
-
-# using Linear Regression to Predict Age for missings
-# if isSingle and title is Miss, could be older
-# if isSingle and has a lot of SibSp, could be younger
-# if Pclass is controll, Fare should reflect the age
-
-ds_m <- ds[!is.na(ds$Age),]
-trf_Age<- randomForest(Age ~ title + isSinglenoSibSp + SibSp + Parch + Pclass + Fare, data=ds_m, importance=TRUE,proximity=TRUE,ntree=200)
-ds$AgePred <- predict(trf_Age, ds)
-
-# check fit
-ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,59,200))
-ds$AgePredDecile = cut(ds$AgePred, c(-2000,11,17,30,59,200))
-table(ds$AgeDecile[!is.na(ds$Age)],ds$AgePredDecile[!is.na(ds$Age)])
-# replace NA
-ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
-
-# cut by decile
-ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,59,200))
 ```
 
 ## Modeling
 ```{r Modeling, message=F, warning=F}
 ctrl = trainControl(method="repeatedcv", number=20, repeats=5, selectionFunction = "oneSE")
-in_train = createDataPartition(ds$Survived, p=.75, list=FALSE)
+in_train = createDataPartition(ds$Survived, p=.80, list=FALSE)
 
 dtr <- ds[in_train,]
-# Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
-dtf<-data.frame(Cabin=dtr$Cabin, Survived=as.integer(dtr$Survived) -1)
-dt<-data.table(dtf[!dtf$Cabin=="",])
-lookup<-dt[,list(p_Survived=mean(Survived)), by=Cabin]
-dtr <- merge(x=dtr, y=lookup, by="Cabin", all.x=T)
-dtr$p_Survived[is.na(dtr$p_Survived)] = 0.5
-
-# using multiple processing... comment this if it does not work
-registerDoMC(cores = 6)
+lookup <- generate_pSurvived_by_Cabin(dtr)
+dtr <- add_p_Survived(dtr, lookup)
 
 # train model using two methods
-tada = train(Survived ~  Sex + Pclass + Age + p_Survived + SibSp + Parch , data=dtr, method="ada",  tuneGrid = data.frame(.maxdepth=1, .nu=1, .iter =500), verbose=F)
-tgbm = train(Survived ~  p_Survived + title + CabinLet + Pclass + Age , data=dtr, method="gbm", metric="Kappa", trControl=ctrl, verbose=FALSE)
+tada = train(Survived ~  Sex + Pclass + Age + p_Survived + familySz + nFare , data=dtr, method="ada", tuneGrid = data.frame(.maxdepth=1, .nu=1, .iter =500), verbose=F)
+tgbm = train(Survived ~  p_Survived + title + Pclass + isSinglenoSibSp:I((SibSp+0.01)/(SibSp+Parch+0.01)) + Age + nFare  , data=dtr, method="gbm", metric="Kappa",trControl=ctrl, verbose=FALSE)
 tgbm2 = train(Survived ~  Sex + Pclass + AgeDecile + SibSp + Parch , data=dtr, method="gbm", metric="Kappa", trControl=ctrl, verbose=FALSE)
-trf = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + SibSp + Parch, data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=200)
-tsvm = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + SibSp + Parch , data=dtr, method="svmLinear", metric="Kappa", trControl=ctrl, verbose=FALSE)
-
+trf = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + SibSp + Parch + familySz + nFare +isSinglenoSibSp:I((SibSp+1)/(SibSp+Parch+1)), data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=200)
+tsvm = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + familySz + nFare, data=dtr, method="svmLinear", metric="Kappa", trControl=ctrl, verbose=FALSE)
 
 ## Variables importance
 varImp(tgbm)
@@ -132,7 +173,6 @@ varImp(trf)
 ```{r Resampling}
 resampls = resamples(list(RF = trf,
                           GBM = tgbm))
-
 difValues = diff(resampls)
 summary(difValues)
 ```
@@ -140,30 +180,14 @@ summary(difValues)
 ## Verify using the portion of training set
 ```{r Verify}
 test = ds[-in_train,]
-test <- merge(x=test, y=lookup, by="Cabin", all.x=T)
-test$p_Survived[is.na(test$p_Survived)] = 0.5
+test <- add_p_Survived(test, lookup)
+test<-run_prediction(tgbm, tgbm2, tada, trf, tsvm, test)
 
-test$pred.tgbm = predict(tgbm, test, "raw")
 confusionMatrix(test$pred.tgbm, test$Survived)
-
-test$pred.tgbm2 = predict(tgbm2, test, "raw")
 confusionMatrix(test$pred.tgbm2, test$Survived)
-
-test$pred.tada = predict(tada, test, "raw")
 confusionMatrix(test$pred.tada, test$Survived)
-
-test$pred.rf = predict(trf, test, "raw")
 confusionMatrix(test$pred.rf, test$Survived)
-
-test$pred.svm = predict(tsvm, test, "raw")
 confusionMatrix(test$pred.svm, test$Survived)
-
-test$pred.vote = as.factor(
-                  as.integer(
-                      (as.integer(test$pred.rf)-1 + as.integer(test$pred.tgbm)-1 + as.integer(test$pred.svm)-1 + as.integer(test$pred.tgbm2)-1 + as.integer(test$pred.tada)-1)> 2.5
-                    )
-                  )
-confusionMatrix(test$pred.vote, test$Survived)
 
 ```
 
@@ -171,46 +195,17 @@ confusionMatrix(test$pred.vote, test$Survived)
 ```{r Generate_Summit}
 
 ## Repeat the same treatment as the training set
-dtest$hasCabin = as.factor(dtest$Cabin=="")
-dtest$Pclass = as.factor(dtest$Pclass)
-dtest$isSingle <- as.factor(dtest$Parch==0)
-dtest$CabinLet = as.factor(substr(dtest$Cabin, 1, 1))
-dtest$CabinCnt = as.integer(!dtest$Cabin=="") + sapply(dtest$Cabin,getCountSp, simplify=T)
-dtest$noSibSp = as.factor(dtest$SibSp == 0)
-dtest$isSinglenoSibSp <- as.factor(dtest$SibSp == 0 & dtest$Parch==0 )
-dtest$title=""
-dtest$title[grepl("Mr\\.", dtest$Name)] = "Mr"
-dtest$title[grepl("Mrs\\.", dtest$Name)] = "Mrs"
-dtest$title[grepl("Miss\\.", dtest$Name)] = "Miss"
-dtest$title[grepl("Master\\.", dtest$Name)] = "Master"
-dtest$title[grepl("Dr\\.", dtest$Name)] = "Dr"
-
-dtest$title[(dtest$Sex=="male") & (dtest$Age > 12) & (dtest$title=="")]="Mr"
-dtest$title[(dtest$Sex=="male") & (dtest$Age <= 11) & (dtest$title=="")]="Master"
-dtest$title[(dtest$Sex=="female") & (dtest$Age <= 11) & (dtest$title=="")]="Miss"
-dtest$title = as.factor(dtest$title)
-dtest$AgePred <- predict(trf_Age, dtest)
-dtest$Age[is.na(dtest$Age)]<-dtest$AgePred[is.na(dtest$Age)]
-dtest$AgeDecile = cut(dtest$Age, c(-2000,11,17,30,59,200))
-
+dtest<-pretreatment(dtest)
+dtest<-psttreatment(trf_Age,dtest)
 # Create variable for prob to Survive within the same cabin
-dtest <- merge(x=dtest, y=lookup, by="Cabin", all.x=T)
-dtest$p_Survived[is.na(dtest$p_Survived)] = 0.5
-
-
+dtest <- add_p_Survived(dtest, lookup)
 ## Run the data through the model
-dtest$pred.tgbm = predict(tgbm, dtest, "raw")
-dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
-dtest$pred.tada = predict(tada, dtest, "raw")
-dtest$pred.rf = predict(trf, dtest, "raw")
-dtest$pred.svm = predict(tsvm, dtest, "raw")
-
+dtest<-run_prediction(tgbm, tgbm2, tada, trf, tsvm, dtest)
 dtest$pred.vote = as.factor(
                   as.integer(
                       (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.tgbm)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1 + as.integer(dtest$pred.tada)-1)> 2.5
                     )
                   )
-
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)-1))
 names(dSummit)=c("PassengerId","Survived")
