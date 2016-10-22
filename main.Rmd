@@ -131,6 +131,11 @@ run_prediction <- function(tgbm, tgbm2, tada, trf, tsvm, dtest){
   dtest$pred.tada = predict(tada, dtest, "raw")
   dtest$pred.rf = predict(trf, dtest, "raw")
   dtest$pred.svm = predict(tsvm, dtest, "raw")
+  dtest$pred.vote = as.factor(
+                  as.integer(
+                      (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.tgbm)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1 + as.integer(dtest$pred.tada)-1)> 2.5
+                    )
+                  )
   return(dtest)
 }
 ```
@@ -164,6 +169,7 @@ tgbm2 = train(Survived ~  Sex + Pclass + AgeDecile + SibSp + Parch , data=dtr, m
 trf = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + SibSp + Parch + familySz + nFare +isSinglenoSibSp:I((SibSp+1)/(SibSp+Parch+1)), data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=200)
 tsvm = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + familySz + nFare, data=dtr, method="svmLinear", metric="Kappa", trControl=ctrl, verbose=FALSE)
 
+
 ## Variables importance
 varImp(tgbm)
 varImp(trf)
@@ -188,6 +194,7 @@ confusionMatrix(test$pred.tgbm2, test$Survived)
 confusionMatrix(test$pred.tada, test$Survived)
 confusionMatrix(test$pred.rf, test$Survived)
 confusionMatrix(test$pred.svm, test$Survived)
+confusionMatrix(test$pred.vote, test$Survived)
 
 ```
 
@@ -201,11 +208,6 @@ dtest<-psttreatment(trf_Age,dtest)
 dtest <- add_p_Survived(dtest, lookup)
 ## Run the data through the model
 dtest<-run_prediction(tgbm, tgbm2, tada, trf, tsvm, dtest)
-dtest$pred.vote = as.factor(
-                  as.integer(
-                      (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.tgbm)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1 + as.integer(dtest$pred.tada)-1)> 2.5
-                    )
-                  )
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)-1))
 names(dSummit)=c("PassengerId","Survived")
