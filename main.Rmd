@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+rm(list = setdiff(ls(), lsf.str()))
 ```
 ## Included Package
 ```{r includedPackage, message=F, warning=F}
@@ -45,30 +46,61 @@ ds_m <- ds[!is.na(ds$Age),]
 ds_m$Survived <- as.factor(ds_m$Survived)
 
 ggplot(ds_m, aes(SibSp,Age)) + stat_smooth() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Pclass,Age)) + stat_smooth() + geom_point(alpha=0.1)
+ggplot(ds_m, aes(factor(Pclass),Age)) + geom_boxplot()
 ggplot(ds_m, aes(Parch,Age)) + stat_smooth() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Embarked,Age)) + geom_jitter() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Fare,Age)) + stat_smooth() + geom_point(alpha=0.1)
+ggplot(ds_m[!(ds_m$Embarked==""),], aes(x=Age, fill=Embarked, colour=Embarked)) + geom_density(adjust=1, alpha=0.1)
+ggplot(ds_m[ds_m$Pclass==1,], aes(Fare,Age)) + stat_smooth() + geom_point(alpha=0.1)
+ggplot(ds_m[ds_m$Pclass==2,], aes(Fare,Age)) + stat_smooth() + geom_point(alpha=0.1)
+ggplot(ds_m[ds_m$Pclass==3,], aes(Fare,Age)) + stat_smooth() + geom_point(alpha=0.1)
 
-ggplot(ds_m, aes(Survived,Embarked)) +geom_jitter() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Survived,SibSp)) +geom_jitter() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Survived,Pclass)) +geom_jitter() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(Survived,Parch)) +geom_jitter() + geom_point(alpha=0.1)
-ggplot(ds_m, aes(x=Age, fill=Survived, colour=Survived)) + geom_density(adjust=1/2, alpha=0.1)
+ggplot(ds_m, aes(Embarked, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
+ggplot(ds_m, aes(SibSp, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
+ggplot(ds_m, aes(Pclass, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
+ggplot(ds_m, aes(Parch, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
+ggplot(ds_m, aes(x=Age, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
 ds_m$AgeDecile = cut(ds_m$Age, c(-2000,7,59,200))
 
 ggplot(ds_m[ds_m$Pclass==1,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
 ggplot(ds_m[ds_m$Pclass==2,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
-ggplot(ds_m[ds_m$Pclass==3,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
+ggplot(ds_m[ds_m$Pclass==3 & as.integer(ds_m$AgeDecile)<3,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
 
 ```
 
-## Support function
+## Supporting functions
 ```{r Support, message=F, warning=F}
 #### function to count number of space in the string
 getCountSp <- function(str){
   m<-gregexpr("\\s", str, perl=T)
   return(unlist(length(regmatches(str,m)[[1]])))
+}
+
+#### function to generate lookup for cnt per ticket
+generate_cnt_by_Ticket<-function(dtf){
+  # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
+  dtf<-data.frame(Ticket=dtf$Ticket, Survived=as.integer(dtf$Survived) -1)
+  dt<-data.table(dtf)
+  lookup<-dt[,list(cnt_ticket = .N), by=Ticket]
+  return(lookup)
+}
+
+generate_BAY_p_ds<-function(i, dtest){
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 1 )
+  return (p)
+}
+
+#### function to generate lookup for cnt per Grpticket and number of survived per GrpTicket
+generate_n_Survived_GrpTicket<-function(dtf){
+  # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
+  dtf<-data.frame(GrpTicket=dtf$GrpTicket, Survived=as.integer(dtf$Survived) -1)
+  dt<-data.table(dtf)
+  lookup<-dt[,list(SurvivedTotal = mean(Survived) * .N, nsample = .N), by=GrpTicket]
+  return(lookup)
+}
+
+#### function to add information by name into data set
+add_info_by_name <- function(dtr,name_, lookup){
+  dtr <- merge(x=dtr, y=lookup, by=name_, all.x=T)
+  return(dtr)
 }
 
 #### function to create variables before the Age prediction
@@ -99,87 +131,69 @@ pretreatment <- function(ds){
   ds$nFare[ds$Pclass==2] = log(ds$Fare[ds$Pclass==2] +0.01) - log(mean(ds$Fare[ds$Pclass==2])+0.01)
   ds$nFare[ds$Pclass==3] = log(ds$Fare[ds$Pclass==3] +0.01) - log(mean(ds$Fare[ds$Pclass==3])+0.01)
   ds$nFare[is.na(ds$nFare)] = 0
+  
+  ds$hasNoChildren = (ds$SibSp==1 & ds$Parch==0)
+  ds$r_SibSp_Parch = ((ds$SibSp+0.01)/(ds$SibSp+ds$Parch+0.01))
+  
+  # Get total number of people per ticket
+  lookup<-generate_cnt_by_Ticket(ds)
+  ds<-add_info_by_name(ds,"Ticket",lookup)
+  # Define the group ticket that has more than 2 people
+  ds$GrpTicket = "XXXXXXX"
+  ds$GrpTicket[ds$cnt_ticket>1] = as.character(ds$Ticket[ds$cnt_ticket>1])
+  
   return(ds)
 }
 
 #### function to do Age Prediction
+# first stage using linear regression to deal with the interaction
+lm_Age <- function(ds) {
+  ds_m <- ds[!is.na(ds$Age),]
+  lr_Age<- lm(I(log(Age+0.0001))~isSingle*title + isSingle*SibSp + Parch, data=ds_m)
+  print(summary(lr_Age))
+  return(lr_Age)
+}
+# second stage using rf for partition
 md_Age <- function(ds) {
   # Predict Age for missings
   # if isSingle and title is Miss, could be older
   # if isSingle and has a lot of SibSp, could be younger
   # if Pclass is controll, Fare should reflect the age
   # using log(Age) because Age distribution is right-skewed... except the baby... but mostly right skewed
-  ds_m <- reSamplebyAge(ds[!is.na(ds$Age),], c(-2000,11,17,30,60,200))
-  #ds_m <- ds[!is.na(ds$Age),]
-  trf_Age<- randomForest(I(log(Age+0.0001)) ~ title + familySz + SibSp + Parch + Pclass + nFare  + CabinLet + isSinglenoSibSp + 
-                        I(SibSp==1 & Parch==0) +  
-                        I((SibSp+0.01)/(SibSp+Parch+0.01))  , data=ds_m, importance=TRUE,proximity=TRUE,ntree=500)
+  #
+  #ds_m <- reSamplebyAge(ds[!is.na(ds$Age),], c(-2000,11,17,30,60,200))
+  ds_m <- ds[!is.na(ds$Age),]
+  trf_Age<- randomForest(I(log(Age+0.0001))~ title + familySz + pAge_lr + SibSp + Pclass + nFare  + CabinLet + isSinglenoSibSp +  hasNoChildren + r_SibSp_Parch, data=ds_m, importance=TRUE,proximity=TRUE,ntree=500)
   print(varImp(trf_Age))
-
-#  trf_Age<- lm(Age~isSingle*title + isSingle*SibSp + familySz + Pclass + nFare + I((SibSp+0.01)/(SibSp+Parch+0.01)) , data=ds_m)
-#  print(summary(trf_Age))                      
-  # check fit
   return(trf_Age)
 }
 
-#### function to do sampling by Age
-##### Want to emphasis the very young (<11) who has high survival rate and old (>58) has low survival rate.
-##### maintain the 17<x<30 which most of them died
-##### Therefore, oversampling those interested grps. 
-##### Return data set with equal number of samples from each group.
-reSamplebyAge <- function(ds, gpcut){
-  ds$AgeGp <- cut(ds$Age, gpcut)
-  ds$isAge1<-as.factor(ds$AgeGp == names(table(ds$AgeGp))[1])
-  ds$isAge3<-as.factor(ds$AgeGp == names(table(ds$AgeGp))[3])
-  ds$isAgelt<-as.factor (ds$AgeGp == names(table(ds$AgeGp))[length(table(ds$AgeGp))])
-  ds1 <-SMOTE(isAge1 ~ Sex + Pclass, ds, perc.over = 800, k =5, perc.under=160)
-  ds3 <-SMOTE(isAge3 ~ Sex + Pclass, ds, perc.over = 4, k =5, perc.under=0)
-  dslt <-SMOTE(isAgelt ~ Sex + Pclass, ds, perc.over = 2000, k =5, perc.under=0)
-  dsampled <- rbind (ds3, ds1,dslt)
-  print(table(dsampled$AgeGp))
-  return(dsampled)
-}
-
 #### function to create variables after the Age prediction
-psttreatment <- function(trf_Age, ds) {
-  ds$AgePred <- exp(predict(trf_Age, ds))
-  ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,60,200))
-  ds$AgePredDecile = cut(ds$AgePred, c(-2000,11,17,30,60,200))
-  print(table(ds$AgeDecile[!is.na(ds$Age)],ds$AgePredDecile[!is.na(ds$Age)]))
+psttreatment <- function(lm_Ager, trf_Age, ds) {
+  ds_m <- ds
+  ds_m$pAge_lr = exp(predict(lm_Ager, ds_m))
+  ds_m$AgePred <- exp(predict(trf_Age, ds_m))
+  ds_m$AgeDecile = cut(ds_m$Age, c(-2000,11,17,30,60,200))
+  ds_m$AgePredDecile = cut(ds_m$AgePred, c(-2000,11,17,30,60,200))
+  print(table(ds_m$AgeDecile[!is.na(ds_m$Age)],ds_m$AgePredDecile[!is.na(ds_m$Age)]))
   # replace NA
-  ds$Age[is.na(ds$Age)]<-ds$AgePred[is.na(ds$Age)]
+  ds_m$Age[is.na(ds_m$Age)]<-ds_m$AgePred[is.na(ds_m$Age)]
   # cut by decile
-  ds$AgeDecile = cut(ds$Age, c(-2000,11,17,30,60,200))
-  return(ds)
+  ds_m$AgeDecile = cut(ds_m$Age, c(-2000,11,17,30,60,200))
+
+  return(ds_m)
 }
 
-#### function to generate lookup for probablilty of survival to Cabin
-generate_pSurvived_by_Cabin<-function(dtf){
-  # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
-  dtf<-data.frame(Cabin=dtr$Cabin, Survived=as.integer(dtr$Survived) -1)
-  dt<-data.table(dtf[!dtf$Cabin=="",])
-  lookup<-dt[,list(p_Survived=mean(Survived)), by=Cabin]
-  return(lookup)
-}
-
-#### function to add p_Survived into data set
-add_p_Survived <- function(dtr,lookup){
-  dtr <- merge(x=dtr, y=lookup, by="Cabin", all.x=T)
-  dtr$p_Survived[is.na(dtr$p_Survived)] = 0.5
-  return(dtr)
-}
 
 #### function to run the prediction
-run_prediction <- function(tgbm, tgbm2, tada, trf, tsvm, dtest){
+run_prediction <- function(tgbm2, trf, tsvm, dtest){
   ## Run the data through the model
-  dtest$pred.tgbm = predict(tgbm, dtest, "raw")
   dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
-  dtest$pred.tada = predict(tada, dtest, "raw")
   dtest$pred.rf = predict(trf, dtest, "raw")
   dtest$pred.svm = predict(tsvm, dtest, "raw")
   dtest$pred.vote = as.factor(
                   as.integer(
-                      (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.tgbm)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1 + as.integer(dtest$pred.tada)-1)> 2.5
+                      (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1)> 1.5
                     )
                   )
   return(dtest)
@@ -189,10 +203,13 @@ run_prediction <- function(tgbm, tgbm2, tada, trf, tsvm, dtest){
 ## Data Manupulation
 ```{r ManupulateData, message=F, warning=F}
 dall<-pretreatment(dall)
+dall$GrpTicket = as.factor(dall$GrpTicket)
+lm_Ager <-  lm_Age(dall)
+dall$pAge_lr <- exp(predict(lm_Ager, dall))
 trf_Age <- md_Age(dall)
-ggplot(dall, aes(title,Age)) + geom_jitter() + geom_point()
-ggplot(dall, aes(Survived,title)) + geom_jitter() + geom_point()
-dall<-psttreatment(trf_Age,dall)
+ggplot(dall, aes(factor(title),Age)) + geom_boxplot()
+ggplot(dall, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
+dall<-psttreatment(lm_Ager, trf_Age,dall)
 
 ds <- dall[dall$src == 0,]
 dtest <- dall[dall$src == 1,]
@@ -201,44 +218,82 @@ dtest <- dall[dall$src == 1,]
 
 ## Modeling
 ```{r Modeling, message=F, warning=F}
-ctrl = trainControl(method="repeatedcv", number=20, repeats=5, selectionFunction = "oneSE")
-in_train = createDataPartition(ds$Survived, p=.80, list=FALSE)
+ctrl = trainControl(method="repeatedcv", number=20, repeats=10, selectionFunction = "oneSE")
+in_train = createDataPartition(ds$Survived, p=.90, list=FALSE)
 
 dtr <- ds[in_train,]
-lookup <- generate_pSurvived_by_Cabin(dtr)
-dtr <- add_p_Survived(dtr, lookup)
+lookup<-generate_n_Survived_GrpTicket(dtr)
+dtr<-add_info_by_name(dtr,"GrpTicket", lookup)
+dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 
-# train model using two methods
-tada = train(Survived ~  Sex + Pclass + Age + p_Survived + familySz + nFare , data=dtr, method="ada", tuneGrid = data.frame(.maxdepth=1, .nu=1, .iter =500), verbose=F)
-tgbm = train(Survived ~  p_Survived + title + Pclass + isSinglenoSibSp:I((SibSp+0.01)/(SibSp+Parch+0.01)) + Age + nFare  , data=dtr, method="gbm", metric="Kappa",trControl=ctrl, verbose=FALSE)
-tgbm2 = train(Survived ~  Sex + Pclass + AgeDecile + SibSp + Parch  , data=dtr, method="gbm", metric="Kappa", trControl=ctrl, verbose=FALSE)
-trf = train(Survived ~  Sex + p_Survived + title + Pclass + CabinCnt + CabinLet + AgeDecile + SibSp + Parch + familySz + nFare +isSinglenoSibSp:I((SibSp+1)/(SibSp+Parch+1)), data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=200)
+# train model using multiple methods
+
+tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
+                          n.trees = (1:30)*5,
+                          shrinkage = 0.1,
+                          n.minobsinnode = 2)
+tgbm2 = 
+  train(
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, data=dtr, method="gbm", 
+    tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", trControl=ctrl, verbose=FALSE
+  )
+
+trf = 
+  train(
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
+    data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=400
+  )
+
 #method="svmLinear",
-tsvm = train(Survived ~  p_Survived + title + Pclass + CabinLet + AgeDecile + familySz + nFare, data=dtr, method="svmLinear",tuneLength=5, metric="Kappa", trControl=ctrl, verbose=FALSE)
-
+tsvm = 
+  train(
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
+    data=dtr, method="svmPoly",tuneLength=5, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
+  )
 
 ## Variables importance
-varImp(tgbm)
+varImp(tgbm2)
 varImp(trf)
 ```
 
 ## Resampling
 ```{r Resampling}
 resampls = resamples(list(RF = trf,
-                          GBM = tgbm))
+                          GBM = tgbm2))
 difValues = diff(resampls)
 summary(difValues)
+bwplot(resampls, layout=c(2,1))
+
+resampls = resamples(list(SVM = tsvm,
+                          GBM = tgbm2))
+difValues = diff(resampls)
+summary(difValues)
+bwplot(resampls, layout=c(2,1))
+
+resampls = resamples(list(RF = trf,
+                          SVM = tsvm))
+difValues = diff(resampls)
+summary(difValues)
+bwplot(resampls, layout=c(2,1))
+
 ```
 
 ## Verify using the portion of training set
 ```{r Verify}
 test = ds[-in_train,]
-test <- add_p_Survived(test, lookup)
-test<-run_prediction(tgbm, tgbm2, tada, trf, tsvm, test)
 
-confusionMatrix(test$pred.tgbm, test$Survived)
+test<-add_info_by_name(test,"GrpTicket", lookup)
+#backgroud survived rate = Beta(1,1)
+test$SurvivedTotal[is.na(test$nsample)]=0
+test$nsample[is.na(test$nsample)]=0
+test$p_Survived<-sapply(1 : length(test$nsample), generate_BAY_p_ds, dtest =test)
+
+test<-run_prediction(tgbm2, trf, tsvm, test)
+
 confusionMatrix(test$pred.tgbm2, test$Survived)
-confusionMatrix(test$pred.tada, test$Survived)
 confusionMatrix(test$pred.rf, test$Survived)
 confusionMatrix(test$pred.svm, test$Survived)
 confusionMatrix(test$pred.vote, test$Survived)
@@ -248,10 +303,18 @@ confusionMatrix(test$pred.vote, test$Survived)
 ## Generate summit file for competition
 ```{r Generate_Summit}
 
+# Regenerate lookup using all training info
+#lookup<-generate_n_Survived_GrpTicket(ds)
 # Create variable for prob to Survive within the same cabin
-dtest <- add_p_Survived(dtest, lookup)
+dtest<-add_info_by_name(dtest,"GrpTicket", lookup)
+
+#backgroud survived rate = Beta(1,1)
+dtest$SurvivedTotal[is.na(dtest$nsample)]=0
+dtest$nsample[is.na(dtest$nsample)]=0
+dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
+
 ## Run the data through the model
-dtest<-run_prediction(tgbm, tgbm2, tada, trf, tsvm, dtest)
+dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)-1))
 names(dSummit)=c("PassengerId","Survived")
