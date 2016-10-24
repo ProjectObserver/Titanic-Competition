@@ -37,6 +37,7 @@ dall$Survived = as.factor(dall$Survived)
 ## EDA
 ```{r EDA, message=F, warning=F}
 
+# Normalized Fare by Pclass
 ds$nFare[ds$Pclass==1] = log(ds$Fare[ds$Pclass==1] +0.01) - log(mean(ds$Fare[ds$Pclass==1])+0.01)
 ds$nFare[ds$Pclass==2] = log(ds$Fare[ds$Pclass==2] +0.01) - log(mean(ds$Fare[ds$Pclass==2])+0.01)
 ds$nFare[ds$Pclass==3] = log(ds$Fare[ds$Pclass==3] +0.01) - log(mean(ds$Fare[ds$Pclass==3])+0.01)
@@ -66,7 +67,7 @@ ggplot(ds_m[ds_m$Pclass==3 & as.integer(ds_m$AgeDecile)<3,], aes(x=(nFare), fill
 
 ```
 
-## Supporting functions
+## Supporting Functions
 ```{r Support, message=F, warning=F}
 #### function to count number of space in the string
 getCountSp <- function(str){
@@ -83,6 +84,7 @@ generate_cnt_by_Ticket<-function(dtf){
   return(lookup)
 }
 
+#### function to generate samples from Beta distribution; piror dist. = Beta(1,1) : average = 0.5; posterior = Beta(1+Survived, 1+dead)
 generate_BAY_p_ds<-function(i, dtest){
   p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 1 )
   return (p)
@@ -97,8 +99,8 @@ generate_n_Survived_GrpTicket<-function(dtf){
   return(lookup)
 }
 
-#### function to add information by name into data set
-add_info_by_name <- function(dtr,name_, lookup){
+#### function to add information in lookup by name into data set
+add_info_by_name <- function(dtr, name_, lookup){
   dtr <- merge(x=dtr, y=lookup, by=name_, all.x=T)
   return(dtr)
 }
@@ -147,19 +149,19 @@ pretreatment <- function(ds){
 
 #### function to do Age Prediction
 # first stage using linear regression to deal with the interaction
+  # Predict Age for missings
+  # if isSingle and title is Miss, could be older
+  # if isSingle and has a lot of SibSp, could be younger
+  # if Pclass is controlled, Fare should reflect the age
+  # using log(Age) because Age distribution is right-skewed... except the baby... but mostly right skewed
 lm_Age <- function(ds) {
   ds_m <- ds[!is.na(ds$Age),]
-  lr_Age<- lm(I(log(Age+0.0001))~isSingle*title + isSingle*SibSp + Parch, data=ds_m)
+  lr_Age<- lm(I(log(Age+0.0001))~title*isSingle + isSingle*SibSp + Parch*I(SibSp>1) + Pclass*nFare + hasCabin*hasNoChildren, data=ds_m)
   print(summary(lr_Age))
   return(lr_Age)
 }
 # second stage using rf for partition
 md_Age <- function(ds) {
-  # Predict Age for missings
-  # if isSingle and title is Miss, could be older
-  # if isSingle and has a lot of SibSp, could be younger
-  # if Pclass is controll, Fare should reflect the age
-  # using log(Age) because Age distribution is right-skewed... except the baby... but mostly right skewed
   #
   #ds_m <- reSamplebyAge(ds[!is.na(ds$Age),], c(-2000,11,17,30,60,200))
   ds_m <- ds[!is.na(ds$Age),]
@@ -200,7 +202,7 @@ run_prediction <- function(tgbm2, trf, tsvm, dtest){
 }
 ```
 
-## Data Manupulation
+## Data Manipulation
 ```{r ManupulateData, message=F, warning=F}
 dall<-pretreatment(dall)
 dall$GrpTicket = as.factor(dall$GrpTicket)
@@ -229,7 +231,7 @@ dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 # train model using multiple methods
 
 tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
-                          n.trees = (1:30)*5,
+                          n.trees = (1:25)*5,
                           shrinkage = 0.1,
                           n.minobsinnode = 2)
 tgbm2 = 
@@ -243,7 +245,7 @@ trf =
   train(
     Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
               familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
-    data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=400
+    data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=350
   )
 
 #method="svmLinear",
@@ -251,7 +253,7 @@ tsvm =
   train(
     Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
               familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
-    data=dtr, method="svmPoly",tuneLength=5, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
+    data=dtr, method="svmPoly",tuneLength=4, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
   )
 
 ## Variables importance
@@ -281,7 +283,7 @@ bwplot(resampls, layout=c(2,1))
 
 ```
 
-## Verify using the portion of training set
+## Verification Using Portion of Training Set
 ```{r Verify}
 test = ds[-in_train,]
 
@@ -300,7 +302,7 @@ confusionMatrix(test$pred.vote, test$Survived)
 
 ```
 
-## Generate summit file for competition
+## Generate Summit File for Competition
 ```{r Generate_Summit}
 
 # Regenerate lookup using all training info
