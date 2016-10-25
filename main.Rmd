@@ -148,24 +148,16 @@ pretreatment <- function(ds){
 }
 
 #### function to do Age Prediction
-# first stage using linear regression to deal with the interaction
   # Predict Age for missings
   # if isSingle and title is Miss, could be older
   # if isSingle and has a lot of SibSp, could be younger
   # if Pclass is controlled, Fare should reflect the age
   # using log(Age) because Age distribution is right-skewed... except the baby... but mostly right skewed
-lm_Age <- function(ds) {
-  ds_m <- ds[!is.na(ds$Age),]
-  lr_Age<- lm(I(log(Age+0.0001))~title*isSingle + isSingle*SibSp + Parch*I(SibSp>1) + Pclass*nFare + hasCabin*hasNoChildren, data=ds_m)
-  print(summary(lr_Age))
-  return(lr_Age)
-}
-# second stage using rf for partition
 md_Age <- function(ds) {
-  #
-  #ds_m <- reSamplebyAge(ds[!is.na(ds$Age),], c(-2000,11,17,30,60,200))
   ds_m <- ds[!is.na(ds$Age),]
-  trf_Age<- randomForest(I(log(Age+0.0001))~ title + familySz + pAge_lr + SibSp + Pclass + nFare  + CabinLet + isSinglenoSibSp +  hasNoChildren + r_SibSp_Parch, data=ds_m, importance=TRUE,proximity=TRUE,ntree=500)
+  ds_extra <- ds_m[ds_m$Age>60,]
+  ds_m <- rbind(ds_m, ds_extra, ds_extra)
+  trf_Age<- randomForest(I(log(Age+0.0001))~ title + isSingle*SibSp + I(Parch<=2):Parch:I(SibSp>1) + Parch:familySz + SibSp + Pclass + r_SibSp_Parch, data=ds_m, importance=TRUE,proximity=TRUE,ntree=500)
   print(varImp(trf_Age))
   return(trf_Age)
 }
@@ -173,7 +165,6 @@ md_Age <- function(ds) {
 #### function to create variables after the Age prediction
 psttreatment <- function(lm_Ager, trf_Age, ds) {
   ds_m <- ds
-  ds_m$pAge_lr = exp(predict(lm_Ager, ds_m))
   ds_m$AgePred <- exp(predict(trf_Age, ds_m))
   ds_m$AgeDecile = cut(ds_m$Age, c(-2000,11,17,30,60,200))
   ds_m$AgePredDecile = cut(ds_m$AgePred, c(-2000,11,17,30,60,200))
@@ -185,7 +176,6 @@ psttreatment <- function(lm_Ager, trf_Age, ds) {
 
   return(ds_m)
 }
-
 
 #### function to run the prediction
 run_prediction <- function(tgbm2, trf, tsvm, dtest){
@@ -206,12 +196,11 @@ run_prediction <- function(tgbm2, trf, tsvm, dtest){
 ```{r ManupulateData, message=F, warning=F}
 dall<-pretreatment(dall)
 dall$GrpTicket = as.factor(dall$GrpTicket)
-lm_Ager <-  lm_Age(dall)
-dall$pAge_lr <- exp(predict(lm_Ager, dall))
 trf_Age <- md_Age(dall)
 ggplot(dall, aes(factor(title),Age)) + geom_boxplot()
 ggplot(dall, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
 dall<-psttreatment(lm_Ager, trf_Age,dall)
+ggplot(dall, aes(AgePred, Age)) + geom_point(alpha=0.1) + geom_smooth(method='lm',formula=y~x)
 
 ds <- dall[dall$src == 0,]
 dtest <- dall[dall$src == 1,]
@@ -227,32 +216,33 @@ dtr <- ds[in_train,]
 lookup<-generate_n_Survived_GrpTicket(dtr)
 dtr<-add_info_by_name(dtr,"GrpTicket", lookup)
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
 
 # train model using multiple methods
 
 tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
-                          n.trees = (1:25)*5,
+                          n.trees = (1:30)*10,
                           shrinkage = 0.1,
                           n.minobsinnode = 2)
 tgbm2 = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, data=dtr, method="gbm", 
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, data=dtr, method="gbm", 
     tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", trControl=ctrl, verbose=FALSE
   )
 
 trf = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
-    data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=350
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
+    data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=500
   )
 
 #method="svmLinear",
 tsvm = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinCnt + CabinLet + I(CabinLet=="") + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare +isSinglenoSibSp:r_SibSp_Parch, 
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+              familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
     data=dtr, method="svmPoly",tuneLength=4, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
   )
 
@@ -264,19 +254,7 @@ varImp(trf)
 ## Resampling
 ```{r Resampling}
 resampls = resamples(list(RF = trf,
-                          GBM = tgbm2))
-difValues = diff(resampls)
-summary(difValues)
-bwplot(resampls, layout=c(2,1))
-
-resampls = resamples(list(SVM = tsvm,
-                          GBM = tgbm2))
-difValues = diff(resampls)
-summary(difValues)
-bwplot(resampls, layout=c(2,1))
-
-resampls = resamples(list(RF = trf,
-                          SVM = tsvm))
+                          GBM = tgbm2, SVM = tsvm))
 difValues = diff(resampls)
 summary(difValues)
 bwplot(resampls, layout=c(2,1))
@@ -306,7 +284,7 @@ confusionMatrix(test$pred.vote, test$Survived)
 ```{r Generate_Summit}
 
 # Regenerate lookup using all training info
-#lookup<-generate_n_Survived_GrpTicket(ds)
+lookup<-generate_n_Survived_GrpTicket(ds)
 # Create variable for prob to Survive within the same cabin
 dtest<-add_info_by_name(dtest,"GrpTicket", lookup)
 
