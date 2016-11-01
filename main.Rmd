@@ -16,6 +16,7 @@ library(doMC)
 library(randomForest)
 library(data.table)
 library(DMwR)
+library(stringr)
 ```
 ## Set Core
 ```{r SetCore, message=F, warning=F}
@@ -84,41 +85,43 @@ generate_cnt_by_Ticket<-function(dtf){
   return(lookup)
 }
 
-#### function to generate samples from Beta distribution; piror dist. = Beta(1,1) : average = 0.5; posterior = Beta(1+Survived, 1+dead)
+#### function to generate samples from Beta distribution; piror dist. = Beta(0.5,0.5) : no info prior; posterior = Beta(1+Survived, 1+dead)
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 1 )
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 3 )
   return (p)
 }
 
 #### function to generate lookup for cnt per Grpticket and number of survived per GrpTicket
 generate_n_Survived_GrpTicket<-function(dtf){
   # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
-  dtf<-data.frame(GrpTicket=dtf$GrpTicket, Survived=as.integer(dtf$Survived) -1)
-  dt<-data.table(dtf)
-  lookup<-dt[,list(SurvivedTotal = mean(Survived) * .N, nsample = .N), by=GrpTicket]
+  df<-data.frame(GrpTicket=dtf$GrpTicket, Survived=as.integer(dtf$Survived) -1, isMr = dtf$isMr)
+  dt<-data.table(df)
+  lookup<-dt[,list(SurvivedTotal = mean(Survived) * .N, nsample = .N), by=list(GrpTicket, isMr)]
   return(lookup)
 }
 
 #### function to add information in lookup by name into data set
 add_info_by_name <- function(dtr, name_, lookup){
-  dtr <- merge(x=dtr, y=lookup, by=name_, all.x=T)
-  return(dtr)
+  #add_info_by_name(dtr,c('GrpTicket','isMr'), lookup)
+  #add_info_by_name(test,c('GrpTicket','isMr'), lookup)
+  dt <- merge(x=dtr, y=lookup, by=name_, all.x=T)
+  return(dt)
 }
 
 #### function to create variables before the Age prediction
 pretreatment <- function(ds){
   ds$Pclass = as.factor(ds$Pclass)
+  
   # Get the title as predictor for Age
-  ds$title=""
-  ds$title[grepl("Mr\\.", ds$Name)] = "Mr"
-  ds$title[grepl("Mrs\\.", ds$Name)] = "Mrs"
-  ds$title[grepl("Miss\\.", ds$Name)] = "Miss"
-  ds$title[grepl("Master\\.", ds$Name)] = "Master"
-  ds$title[grepl("Dr\\.", ds$Name)] = "Dr"
-  ds$title[(ds$Sex=="male") & (ds$Age > 12) & (ds$title=="")]="Mr"
-  ds$title[(ds$Sex=="male") & (ds$Age <= 11) & (ds$title=="")]="Master"
-  ds$title[(ds$Sex=="female") & (ds$Age <= 11) & (ds$title=="")]="Miss"
+  c<-str_locate(ds$Name," ([a-z;A-Z]*)\\.")
+  ds$title=substr(ds$Name, c[,1]+1, c[,2]-1)
+  ds$title[ds$title=="Ms"] = "Miss"
+  ds$title[!(ds$title=="Mr" | ds$title=="Miss" | ds$title=="Mrs" | ds$title=="Master")] = "Other"
   ds$title = as.factor(ds$title)
+  
+  c<-str_locate(ds$Name,"^([a-z;A-Z -]*),")
+  ds$lastname=as.factor(substr(ds$Name, c[,1], c[,2]-1))
+  
   # Create dummy variable isSingle... 
   ds$noSibSp = as.factor(ds$SibSp == 0)
   ds$isSingle <- as.factor(ds$Parch==0)
@@ -143,6 +146,7 @@ pretreatment <- function(ds){
   # Define the group ticket that has more than 2 people
   ds$GrpTicket = "XXXXXXX"
   ds$GrpTicket[ds$cnt_ticket>1] = as.character(ds$Ticket[ds$cnt_ticket>1])
+  ds$isMr = (ds$title == "Mr")
   
   return(ds)
 }
@@ -210,13 +214,14 @@ dtest <- dall[dall$src == 1,]
 ## Modeling
 ```{r Modeling, message=F, warning=F}
 ctrl = trainControl(method="repeatedcv", number=20, repeats=10, selectionFunction = "oneSE")
-in_train = createDataPartition(ds$Survived, p=.90, list=FALSE)
+in_train = createDataPartition(ds$Survived, p=.99, list=FALSE)
 
 dtr <- ds[in_train,]
 lookup<-generate_n_Survived_GrpTicket(dtr)
-dtr<-add_info_by_name(dtr,"GrpTicket", lookup)
+dtr<-add_info_by_name(dtr,c('GrpTicket','isMr'), lookup)
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
+dtr$p_S_cut = cut(dtr$p_Survived, seq(0,1,0.2))
 
 # train model using multiple methods
 
@@ -226,14 +231,14 @@ tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
                           n.minobsinnode = 2)
 tgbm2 = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, data=dtr, method="gbm", 
     tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", trControl=ctrl, verbose=FALSE
   )
 
 trf = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
     data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=500
   )
@@ -241,7 +246,7 @@ trf =
 #method="svmLinear",
 tsvm = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
     data=dtr, method="svmPoly",tuneLength=4, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
   )
@@ -254,7 +259,8 @@ varImp(trf)
 ## Resampling
 ```{r Resampling}
 resampls = resamples(list(RF = trf,
-                          GBM = tgbm2, SVM = tsvm))
+                          GBM = tgbm2, SVM = tsvm
+                         ))
 difValues = diff(resampls)
 summary(difValues)
 bwplot(resampls, layout=c(2,1))
@@ -265,13 +271,30 @@ bwplot(resampls, layout=c(2,1))
 ```{r Verify}
 test = ds[-in_train,]
 
-test<-add_info_by_name(test,"GrpTicket", lookup)
-#backgroud survived rate = Beta(1,1)
+test<-add_info_by_name(test,c('GrpTicket','isMr'), lookup)
 test$SurvivedTotal[is.na(test$nsample)]=0
 test$nsample[is.na(test$nsample)]=0
-test$p_Survived<-sapply(1 : length(test$nsample), generate_BAY_p_ds, dtest =test)
 
-test<-run_prediction(tgbm2, trf, tsvm, test)
+#backgroud survived rate = Beta(1,1)
+
+pred.tgbm2 <- rep(0,nrow(test))
+pred.rf <- rep(0,nrow(test))
+pred.svm <- rep(0,nrow(test))
+pred.vote <- rep(0,nrow(test))
+
+for (i in 1:99){
+  test$p_Survived<-sapply(1 : nrow(test), generate_BAY_p_ds, dtest =test)
+  test$p_S_cut = cut(test$p_Survived, seq(0,1,0.2))
+  test<-run_prediction(tgbm2, trf, tsvm, test)
+  pred.tgbm2 <- pred.tgbm2 + as.integer(test$pred.tgbm2) - 1
+  pred.rf <- pred.rf + as.integer(test$pred.rf) - 1
+  pred.svm <- pred.svm + as.integer(test$pred.svm) - 1
+  pred.vote <- pred.vote + as.integer(test$pred.vote) - 1
+}
+test$pred.tgbm2 = as.integer(pred.tgbm2>=50)
+test$pred.rf = as.integer(pred.rf>=50)
+test$pred.svm = as.integer(pred.svm>=50)
+test$pred.vote = as.integer(pred.vote>=50)
 
 confusionMatrix(test$pred.tgbm2, test$Survived)
 confusionMatrix(test$pred.rf, test$Survived)
@@ -286,17 +309,34 @@ confusionMatrix(test$pred.vote, test$Survived)
 # Regenerate lookup using all training info
 lookup<-generate_n_Survived_GrpTicket(ds)
 # Create variable for prob to Survive within the same cabin
-dtest<-add_info_by_name(dtest,"GrpTicket", lookup)
+
+dtest<-add_info_by_name(dtest,c('GrpTicket','isMr'), lookup)
+dtest$SurvivedTotal[is.na(dtest$SurvivedTotal)] = 0
+dtest$nsample[is.na(dtest$nsample)] = 0
 
 #backgroud survived rate = Beta(1,1)
-dtest$SurvivedTotal[is.na(dtest$nsample)]=0
-dtest$nsample[is.na(dtest$nsample)]=0
-dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
-
 ## Run the data through the model
-dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
+pred.tgbm2 <- rep(0,nrow(dtest))
+pred.rf <- rep(0,nrow(dtest))
+pred.svm <- rep(0,nrow(dtest))
+pred.vote <- rep(0,nrow(dtest))
+
+for (i in 1:99){
+  dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
+  dtest$p_S_cut = cut(dtest$p_Survived, seq(0,1,0.2))
+  dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
+  pred.tgbm2 <- pred.tgbm2 + as.integer(dtest$pred.tgbm2) - 1
+  pred.rf <- pred.rf + as.integer(dtest$pred.rf) - 1
+  pred.svm <- pred.svm + as.integer(dtest$pred.svm) - 1
+  pred.vote <- pred.vote + as.integer(dtest$pred.vote) - 1
+}
+dtest$pred.tgbm2 = as.integer(pred.tgbm2>=50)
+dtest$pred.rf = as.integer(pred.rf>=50)
+dtest$pred.svm = as.integer(pred.svm>=50)
+dtest$pred.vote = as.integer(pred.vote>=50)
+
 ## Format the summit file and save to ./data/pred.csv
-dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)-1))
+dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)))
 names(dSummit)=c("PassengerId","Survived")
 write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
 ```
