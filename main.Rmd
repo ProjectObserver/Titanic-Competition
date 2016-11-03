@@ -146,7 +146,7 @@ pretreatment <- function(ds){
   # Define the group ticket that has more than 2 people
   ds$GrpTicket = "XXXXXXX"
   ds$GrpTicket[ds$cnt_ticket>1] = as.character(ds$Ticket[ds$cnt_ticket>1])
-  ds$isMr = (ds$title == "Mr")
+  ds$isMr = (ds$title == "Mr" & ds$Age > 17)
   
   return(ds)
 }
@@ -221,7 +221,6 @@ lookup<-generate_n_Survived_GrpTicket(dtr)
 dtr<-add_info_by_name(dtr,c('GrpTicket','isMr'), lookup)
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
-dtr$p_S_cut = cut(dtr$p_Survived, seq(0,1,0.2))
 
 # train model using multiple methods
 
@@ -231,14 +230,14 @@ tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
                           n.minobsinnode = 2)
 tgbm2 = 
   train(
-    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, data=dtr, method="gbm", 
     tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", trControl=ctrl, verbose=FALSE
   )
 
 trf = 
   train(
-    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
     data=dtr, method="rf", metric="Kappa", trControl=ctrl, verbose=FALSE, ntree=500
   )
@@ -246,7 +245,7 @@ trf =
 #method="svmLinear",
 tsvm = 
   train(
-    Survived ~  Sex + p_S_cut + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + AgeDecile + SibSp + Parch + Embarked + 
               familySz + Pclass:nFare +isSinglenoSibSp:r_SibSp_Parch, 
     data=dtr, method="svmPoly",tuneLength=4, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
   )
@@ -284,7 +283,6 @@ pred.vote <- rep(0,nrow(test))
 
 for (i in 1:99){
   test$p_Survived<-sapply(1 : nrow(test), generate_BAY_p_ds, dtest =test)
-  test$p_S_cut = cut(test$p_Survived, seq(0,1,0.2))
   test<-run_prediction(tgbm2, trf, tsvm, test)
   pred.tgbm2 <- pred.tgbm2 + as.integer(test$pred.tgbm2) - 1
   pred.rf <- pred.rf + as.integer(test$pred.rf) - 1
@@ -323,7 +321,6 @@ pred.vote <- rep(0,nrow(dtest))
 
 for (i in 1:99){
   dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
-  dtest$p_S_cut = cut(dtest$p_Survived, seq(0,1,0.2))
   dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
   pred.tgbm2 <- pred.tgbm2 + as.integer(dtest$pred.tgbm2) - 1
   pred.rf <- pred.rf + as.integer(dtest$pred.rf) - 1
@@ -334,9 +331,10 @@ dtest$pred.tgbm2 = as.integer(pred.tgbm2>=50)
 dtest$pred.rf = as.integer(pred.rf>=50)
 dtest$pred.svm = as.integer(pred.svm>=50)
 dtest$pred.vote = as.integer(pred.vote>=50)
-
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)))
 names(dSummit)=c("PassengerId","Survived")
 write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
+
+
 ```
