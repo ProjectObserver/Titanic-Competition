@@ -2,7 +2,9 @@
 title: "Titantic Competiton"
 author: "Observer"
 date: "October 17, 2016"
-output: html_document
+output: 
+  html_document: 
+    keep_md: true
 ---
 
 ```{r setup, include=FALSE}
@@ -20,7 +22,6 @@ library(data.table)
 library(DMwR)
 library(stringr)
 library(foreach)
-#library(doParallel)
 ```
 
 ## Set Core
@@ -50,8 +51,6 @@ ds$nFare[ds$Pclass==3] = log(ds$Fare[ds$Pclass==3] +0.01) - log(mean(ds$Fare[ds$
 ds$nFare[is.na(ds$nFare)] = 0
 
 ds_m <- ds[!is.na(ds$Age),]
-ds_m$Survived <- as.factor(ds_m$Survived)
-
 ggplot(ds_m, aes(SibSp,Age)) + stat_smooth() + geom_point(alpha=0.1)
 ggplot(ds_m, aes(factor(Pclass),Age)) + geom_boxplot()
 ggplot(ds_m, aes(Parch,Age)) + stat_smooth() + geom_point(alpha=0.1)
@@ -90,18 +89,24 @@ generate_cnt_by_Ticket<-function(dtf){
   return(lookup)
 }
 
-#### function to generate samples from Beta distribution; piror dist. = Beta(0.5,0.5) : no info prior; posterior = Beta(1+Survived, 1+dead)
+#### function to generate samples from Beta distribution; 
+###### piror dist. = Beta(2,4) : p_Survived = 1/3; posterior = Beta(1+Survived, 1+dead)
+###### the prior probability is used to control how much information of p_Survived. 
+###### p_Survived is a average survived per ticket of known cases. Although p_Survived is a leakage of data, 
+###### the factor captured the same ticket number tends to have the similar outcome.
+###### Using the piror, the influence of this variable could be reduced. 
+###### This variable should have similar predictive power as title: Mr
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 2)
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 2, dtest$nsample[i] - dtest$SurvivedTotal[i] + 4)
   return (p)
 }
 
-#### function to generate lookup for cnt per Grpticket and number of survived per GrpTicket
-generate_n_Survived_GrpTicket<-function(dtf){
+#### function to generate lookup for cnt per GrpT and number of survived per GrpT
+generate_n_Survived_GrpT<-function(dtf){
   # Create variable for prob to Survive within the same cabin: same cabin usually has same outcome
-  df<-data.frame(GrpTicket=dtf$GrpTicket, Survived=as.integer(dtf$Survived) -1, isMr = dtf$isMr)
+  df<-data.frame(GrpT=dtf$GrpT, Survived=as.integer(dtf$Survived) -1, isMr = dtf$isMr)
   dt<-data.table(df)
-  lookup<-dt[,list(SurvivedTotal = mean(Survived) * .N, nsample = .N), by=list(GrpTicket, isMr)]
+  lookup<-dt[,list(SurvivedTotal = mean(Survived) * .N, nsample = .N), by=list(GrpT, isMr)]
   return(lookup)
 }
 
@@ -132,10 +137,7 @@ pretreatment <- function(ds){
   ds$lastname=as.factor(substr(ds$Name, c[,1], c[,2]-1))
   
   # Create dummy variable isSingle... 
-  ds$noSibSp = as.factor(ds$SibSp == 0)
   ds$isSingle <- as.factor(ds$Parch==0)
-  ds$isSinglenoSibSp <- as.factor(ds$SibSp == 0 & ds$Parch==0 )
-  ds$hasCabin = as.factor(ds$Cabin=="")
   ds$CabinLet = substr(ds$Cabin, 1, 1)
   ds$CabinLet[ds$CabinLet=="T"] = ""
   ds$CabinLet = as.factor(ds$CabinLet)
@@ -146,40 +148,49 @@ pretreatment <- function(ds){
   ds$CabinNum[is.na(ds$CabinNum)] = -10
   ds$familySz = ds$SibSp + ds$Parch
   
-  ds$ln_Fare = log(ds$Fare+0.01)
   ds$nFare[ds$Pclass==1] = log(ds$Fare[ds$Pclass==1] +0.01) - log(mean(ds$Fare[ds$Pclass==1])+0.01)
   ds$nFare[ds$Pclass==2] = log(ds$Fare[ds$Pclass==2] +0.01) - log(mean(ds$Fare[ds$Pclass==2])+0.01)
   ds$nFare[ds$Pclass==3] = log(ds$Fare[ds$Pclass==3] +0.01) - log(mean(ds$Fare[ds$Pclass==3])+0.01)
   ds$nFare[is.na(ds$nFare)] = 0
   
-  ds$hasNoChildren = (ds$SibSp==1 & ds$Parch==0)
   ds$r_SibSp_Parch = ((ds$SibSp+0.01)/(ds$SibSp+ds$Parch+0.01))
   
+  # Similar location would have similar outcome
   # Get total number of people per ticket
   lookup<-generate_cnt_by_Ticket(ds)
   ds<-add_info_by_name(ds,"Ticket",lookup)
   # Define the group ticket that has more than 2 people
-  ds$GrpTicket = "XXXXXXX"
-  ds$GrpTicket[ds$cnt_ticket>1] = as.character(ds$Ticket[ds$cnt_ticket>1])
+  ds$GrpT = "XXXX"
+  ds$GrpT[ds$cnt_ticket>1] = as.character(ds$Ticket[ds$cnt_ticket>1])
   
-  # Group all people in the same Cabin 
-  df<-table(ds$Cabin)
+  # For the ungrouped passenger, group them by cabin
+  df<-table(ds$Cabin[as.character(ds$GrpT)=='XXXX'])
   lu<-as.data.frame(names(df[df>1]))
   names(lu)<-c("Cabin")
   lu$flag <- 1
   lu<-lu[!lu$Cabin=="",]
   ds<-merge(x=ds, y=lu, by="Cabin", all.x=T)
-  ds$GrpTicket[!is.na(ds$flag) & as.character(ds$GrpTicket)=='XXXXXXX']<-as.character(ds$Cabin[!is.na(ds$flag) & as.character(ds$GrpTicket)=='XXXXXXX'])
+  ds$GrpT[!is.na(ds$flag) & as.character(ds$GrpT)=='XXXX']<-as.character(ds$Cabin[!is.na(ds$flag) & as.character(ds$GrpT)=='XXXX'])
 
-  df<-table(ds$lastname)
+  # For the rest of ungrouped passenger, group them by last name
+  df<-table(ds$lastname[as.character(ds$GrpT)=='XXXX'])
   lu<-as.data.frame(names(df[df>1]))
   names(lu)<-c("lastname")
   lu$flag1 <- 1
   lu<-lu[!lu$lastname=="",]
   ds<-merge(x=ds, y=lu, by="lastname", all.x=T)
-  ds$GrpTicket[!is.na(ds$flag1) & as.character(ds$GrpTicket)=='XXXXXXX']<-as.character(ds$lastname[!is.na(ds$flag1) & as.character(ds$GrpTicket)=='XXXXXXX'])
+  ds$GrpT[!is.na(ds$flag1) & as.character(ds$GrpT)=='XXXX']<-as.character(ds$lastname[!is.na(ds$flag1) & as.character(ds$GrpT)=='XXXX'])
 
   return(ds)
+}
+
+#### Try to predict Fare for ticket with single passenger only... 
+##### Want to use that to deduce fare for individaul in combined ticket... Not sucessful
+md_Fare <- function(de) {
+  trf_Fare<- lm(I(log(Fare+0.001))~ title + CabinLet * I(as.factor(CabinNum)) + CabinCnt + Embarked , data=de)
+
+  print(summary(trf_Fare))
+  return(trf_Fare)
 }
 
 #### function to do Age Prediction
@@ -188,17 +199,14 @@ pretreatment <- function(ds){
   # if isSingle and has a lot of SibSp, could be younger
   # if Pclass is controlled, Fare should reflect the age
   # using log(Age) because Age distribution is right-skewed... except the baby... but mostly right skewed
-md_Fare <- function(de) {
-#  trf_Fare<- randomForest(I(log(Fare+0.001))~ title + Pclass + CabinLet + CabinNum + Embarked + Age, data=de, importance=TRUE,proximity=TRUE,ntree=700) CabinLet + CabinNum + 
-  trf_Fare<- lm(I(log(Fare+0.001))~ title + CabinLet * I(as.factor(CabinNum)) + CabinCnt + Embarked , data=de)
-
-  print(summary(trf_Fare))
-  return(trf_Fare)
-}
-  
 md_Age <- function(ds_m) {
   ds <- rbind(ds_m, ds_m[ds_m$Age > 60,])
-  trf_Age<- randomForest(I(log(Age+0.0001))~ title + isSingle*SibSp + I(Parch<=2):I(SibSp>1) + Parch:familySz + SibSp + Pclass + r_SibSp_Parch + CabinLet + CabinNum + CabinCnt+ Embarked + cnt_ticket, data=ds, importance=TRUE,proximity=TRUE,ntree=700)
+  trf_Age<- randomForest(
+                I(log(Age+0.0001)) ~ title + isSingle*SibSp + I(Parch<=2):I(SibSp>1) + Parch:familySz + 
+                             SibSp + Pclass + r_SibSp_Parch + CabinLet + CabinNum + CabinCnt + 
+                             Embarked + cnt_ticket + nFare,
+                data=ds, importance=TRUE,proximity=TRUE,ntree=701
+        )
   print(varImp(trf_Age))
   return(trf_Age)
 }
@@ -227,11 +235,6 @@ run_prediction <- function(tgbm2, trf, tsvm, dtest){
   dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
   dtest$pred.rf = predict(trf, dtest, "raw")
   dtest$pred.svm = predict(tsvm, dtest, "raw")
-  dtest$pred.vote = as.factor(
-                  as.integer(
-                      (as.integer(dtest$pred.rf)-1 + as.integer(dtest$pred.svm)-1 + as.integer(dtest$pred.tgbm2)-1)> 1.5
-                    )
-                  )
   return(dtest)
 }
 ```
@@ -239,7 +242,7 @@ run_prediction <- function(tgbm2, trf, tsvm, dtest){
 ## Data Manipulation
 ```{r ManupulateData, message=F, warning=F}
 dall<-pretreatment(dall)
-dall$GrpTicket = as.factor(dall$GrpTicket)
+dall$GrpT = as.factor(dall$GrpT)
 trf_Age <- md_Age(dall[!is.na(dall$Age),])
 ggplot(dall, aes(factor(title),Age)) + geom_boxplot()
 ggplot(dall, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
@@ -257,53 +260,60 @@ ctrl = trainControl(method="repeatedcv", number=20, repeats=10, selectionFunctio
 in_train = createDataPartition(ds$Survived, p=1, list=FALSE)
 
 #dtr <- ds[in_train,]
-dtr <- ds
-lookup<-generate_n_Survived_GrpTicket(dtr)
-dtr<-add_info_by_name(dtr,c('GrpTicket','isMr'), lookup)
+dtr<-ds
 
-dtr$nsample[dtr$GrpTicket == "XXXXXXX"] = dtr$nsample[dtr$GrpTicket == "XXXXXXX"] / 500
-dtr$SurvivedTotal[dtr$GrpTicket == "XXXXXXX"] = dtr$SurvivedTotal[dtr$GrpTicket == "XXXXXXX"] / 500
-
+lookup<-generate_n_Survived_GrpT(dtr)
+dtr<-add_info_by_name(dtr,c('GrpT','isMr'), lookup)
+dtr$nsample[dtr$GrpT == "XXXX"] = dtr$nsample[dtr$GrpT == "XXXX"] / 600
+dtr$SurvivedTotal[dtr$GrpT == "XXXX"] = dtr$SurvivedTotal[dtr$GrpT == "XXXX"] / 600
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
-
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
+ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
 
 # train model using multiple methods
-
 tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9, 11),
                           n.trees = (1:30)*10,
                           shrinkage = 0.1,
                           n.minobsinnode = 10)
 tgbm2 = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet:CabinNum + CabinCnt + noAge + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare + I(nFare/cnt_ticket) + r_SibSp_Parch, data=dtr, method="gbm", 
-    tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", trControl=ctrl, verbose=FALSE
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+                r_SibSp_Parch, 
+    data=dtr, method="gbm", tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", 
+    trControl=ctrl, verbose=FALSE
   )
+varImp(tgbm2)
 
-x <- cbind(dtr$Sex, dtr$p_Survived, dtr$cnt_ticket, dtr$title, dtr$Pclass, dtr$CabinLet, dtr$CabinNum, dtr$CabinCnt, dtr$noAge, dtr$AgeDecile, dtr$SibSp, dtr$Parch, dtr$Embarked, dtr$familySz, dtr$nFare, dtr$r_SibSp_Parch)
+x <- with (dtr,
+  cbind(
+        Sex, p_Survived, cnt_ticket, title, Pclass, CabinLet, CabinNum, CabinCnt, noAge, AgeDecile, 
+        SibSp, Parch, Embarked, familySz, nFare, r_SibSp_Parch
+  )
+)
 
-bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-7, ntree=1000, doBest = F)
-print(bestmtry)
+bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-4, ntree=1001, doBest = F)
 tune_grid <- expand.grid(.mtry=c(bestmtry[bestmtry[,2] == min(bestmtry[,2]),1]))
 
 trf = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet:CabinNum + CabinCnt + noAge + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare + I(nFare/cnt_ticket) + r_SibSp_Parch, 
-    data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc = c("center", "scale"), verbose=FALSE, ntree=1000
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet+ CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+                r_SibSp_Parch, 
+    data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc=c("center", "scale"), 
+    verbose=FALSE, ntree=1001
   )
 
 #method="svmLinear","svmPoly" svmRadial
 tsvm = 
   train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + noAge + AgeDecile + SibSp + Parch + Embarked + 
-              familySz + nFare + I(nFare/cnt_ticket) + r_SibSp_Parch  , tuneGrid = data.frame(.C = seq(0,0.95,0.05) + 0.05),
-    data=dtr, method="svmLinear",tuneLength=10, metric="Kappa", trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
+    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+                r_SibSp_Parch, 
+    tuneGrid = data.frame(.C = seq(0,0.95,0.05) + 0.05), data=dtr, method="svmLinear", metric="Kappa", 
+    trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
   )
 
-## Variables importance
-varImp(tgbm2)
 varImp(trf)
 ```
 
@@ -321,20 +331,18 @@ bwplot(resampls, layout=c(2,1))
 ```{r Generate_Summit}
 
 # Regenerate lookup using all training info
-lookup<-generate_n_Survived_GrpTicket(ds)
-# Create variable for prob to Survive within the same cabin
+lookup<-generate_n_Survived_GrpT(ds)
 
-dtest<-add_info_by_name(dtest,c('GrpTicket','isMr'), lookup)
+# Create variable for prob to Survive with the same ticket
+dtest<-add_info_by_name(dtest,c('GrpT','isMr'), lookup)
 dtest$SurvivedTotal[is.na(dtest$SurvivedTotal)] = 0
 dtest$nsample[is.na(dtest$nsample)] = 0
 
-#backgroud survived rate = Beta(1,1)
 ## Run the data through the model
+dtest$nsample[dtest$GrpT == "XXXX"] = dtest$nsample[dtest$GrpT == "XXXX"] / 600
+dtest$SurvivedTotal[dtest$GrpT == "XXXX"] = dtest$SurvivedTotal[dtest$GrpT == "XXXX"] / 600
 
-dtest$nsample[dtest$GrpTicket == "XXXXXXX"] = dtest$nsample[dtest$GrpTicket == "XXXXXXX"] / 500
-dtest$SurvivedTotal[dtest$GrpTicket == "XXXXXXX"] = dtest$SurvivedTotal[dtest$GrpTicket == "XXXXXXX"] / 500
-
-n <- 10000
+n <- 10001
 a <-  foreach (i = 1:n, .combine = rbind) %dopar%
 {
   dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
