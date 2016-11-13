@@ -319,20 +319,20 @@ trf_Age <- md_Age(dall[!is.na(dall$Age),])
 
 ```
 ##                 Overall
-## title         66.794271
-## isSingle      13.115486
-## SibSp         14.899720
-## Pclass        35.015402
-## r_SibSp_Parch 18.088859
-## CabinLet      16.257478
-## CabinNum      20.187664
-## CabinCnt       9.727737
-## Embarked      15.860519
-## cnt_ticket    36.292455
-## I(Parch <= 2)  8.267915
-## I(SibSp > 1)  10.233819
-## Parch         16.407130
-## familySz      16.275206
+## title         65.754885
+## isSingle      14.257226
+## SibSp         15.704601
+## Pclass        36.208246
+## r_SibSp_Parch 17.298866
+## CabinLet      15.986594
+## CabinNum      20.004152
+## CabinCnt      10.559499
+## Embarked      16.417709
+## cnt_ticket    37.274334
+## I(Parch <= 2)  8.367809
+## I(SibSp > 1)  10.912414
+## Parch         17.756553
+## familySz      17.518429
 ```
 
 ```r
@@ -356,9 +356,9 @@ dall<-psttreatment(trf_Age,dall)
 ##               (-2e+03,11] (11,15] (15,18] (18,30] (30,49] (49,59] (59,200]
 ##   (-2e+03,11]          88       0       0       2       0       0        0
 ##   (11,15]               7       5       3      10       0       0        0
-##   (15,18]               4       3       3      59       9       0        0
-##   (18,30]               2       4       2     297     111       0        0
-##   (30,49]               0       0       1     107     217       2        0
+##   (15,18]               3       4       2      59      10       0        0
+##   (18,30]               2       4       2     294     114       0        0
+##   (30,49]               0       0       1     110     214       2        0
 ##   (49,59]               0       0       0       9      55       6        0
 ##   (59,200]              0       0       0       3      21      14        2
 ```
@@ -390,6 +390,12 @@ ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(
 ![](main_files/figure-html/Modeling-1.png)<!-- -->
 
 ```r
+ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
+```
+
+![](main_files/figure-html/Modeling-2.png)<!-- -->
+
+```r
 # train model using multiple methods
 tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9, 11),
                           n.trees = (1:30)*10,
@@ -408,18 +414,16 @@ bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-7, ntree=1000, do
 ```
 
 ```
-## mtry = 4  OOB error = 15.38% 
+## mtry = 4  OOB error = 16.95% 
 ## Searching left ...
-## mtry = 3 	OOB error = 15.82% 
-## -0.02919708 1e-07 
+## mtry = 3 	OOB error = 17.17% 
+## -0.01324503 1e-07 
 ## Searching right ...
-## mtry = 6 	OOB error = 15.15% 
-## 0.01459854 1e-07 
-## mtry = 9 	OOB error = 15.82% 
-## -0.04444444 1e-07
+## mtry = 6 	OOB error = 17.51% 
+## -0.03311258 1e-07
 ```
 
-![](main_files/figure-html/Modeling-2.png)<!-- -->
+![](main_files/figure-html/Modeling-3.png)<!-- -->
 
 ```r
 print(bestmtry)
@@ -427,10 +431,9 @@ print(bestmtry)
 
 ```
 ##       mtry  OOBError
-## 3.OOB    3 0.1582492
-## 4.OOB    4 0.1537598
-## 6.OOB    6 0.1515152
-## 9.OOB    9 0.1582492
+## 3.OOB    3 0.1717172
+## 4.OOB    4 0.1694725
+## 6.OOB    6 0.1750842
 ```
 
 ```r
@@ -464,25 +467,25 @@ varImp(tgbm2)
 ## 
 ##                     Overall
 ## titleMr             100.000
-## p_Survived           56.069
-## Sexmale              51.071
-## CabinNum             17.700
-## Pclass3              16.142
-## CabinCnt             11.017
-## cnt_ticket            2.742
-## I(nFare/cnt_ticket)   2.294
-## titleMrs              1.767
-## familySz              1.627
-## titleOther            0.000
-## CabinLetB             0.000
-## CabinLetD             0.000
-## CabinLetC             0.000
-## SibSp                 0.000
-## AgeDecile(18,30]      0.000
-## titleMiss             0.000
-## CabinLetE             0.000
-## EmbarkedQ             0.000
-## nFare                 0.000
+## p_Survived           88.287
+## Sexmale              77.146
+## Pclass3              41.798
+## CabinNum             31.325
+## familySz             17.098
+## cnt_ticket           15.739
+## nFare                10.730
+## EmbarkedS             7.463
+## titleOther            6.868
+## AgeDecile(30,49]      4.625
+## CabinCnt              4.397
+## noAge                 3.956
+## I(nFare/cnt_ticket)   3.364
+## EmbarkedC             2.734
+## titleMiss             2.534
+## SibSp                 2.460
+## Parch                 2.352
+## CabinLetC             1.167
+## AgeDecile(18,30]      1.136
 ```
 
 ```r
@@ -496,25 +499,25 @@ varImp(trf)
 ## 
 ##                     Overall
 ## p_Survived          100.000
-## titleMr              71.489
-## Sexmale              66.157
-## CabinNum             25.713
-## cnt_ticket           25.285
-## I(nFare/cnt_ticket)  24.643
-## nFare                23.395
-## Pclass3              19.093
-## titleMrs             18.140
-## titleMiss            17.147
-## familySz             15.970
-## CabinCnt             14.887
-## r_SibSp_Parch        10.772
-## SibSp                10.494
-## AgeDecile(30,49]      8.004
-## EmbarkedS             7.383
-## AgeDecile(18,30]      7.349
-## Parch                 6.831
-## noAge                 5.442
-## EmbarkedC             5.327
+## titleMr              94.341
+## Sexmale              88.499
+## I(nFare/cnt_ticket)  33.589
+## nFare                32.466
+## CabinNum             32.213
+## titleMiss            31.915
+## cnt_ticket           31.507
+## titleMrs             29.044
+## Pclass3              24.870
+## familySz             22.704
+## CabinCnt             20.646
+## r_SibSp_Parch        16.671
+## SibSp                13.811
+## Parch                10.206
+## EmbarkedS             8.565
+## AgeDecile(30,49]      8.315
+## AgeDecile(18,30]      8.092
+## EmbarkedC             7.297
+## noAge                 6.222
 ```
 
 ## Resampling
@@ -538,15 +541,15 @@ summary(difValues)
 ## 
 ## Accuracy 
 ##     RF      GBM       SVM      
-## RF          -0.002572  0.012063
-## GBM 1.00000            0.014635
-## SVM 0.04401 0.01332            
+## RF          -0.003736  0.008272
+## GBM 1.00000            0.012008
+## SVM 0.40972 0.04238            
 ## 
 ## Kappa 
-##     RF      GBM      SVM     
-## RF          -0.00465  0.02277
-## GBM 1.00000           0.02743
-## SVM 0.10870 0.04359
+##     RF     GBM       SVM      
+## RF         -0.005722  0.014227
+## GBM 1.0000            0.019948
+## SVM 0.6964 0.1728
 ```
 
 ```r
