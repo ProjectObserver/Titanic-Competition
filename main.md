@@ -112,30 +112,24 @@ ggplot(ds_m, aes(Parch, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.
 ![](main_files/figure-html/EDA-11.png)<!-- -->
 
 ```r
-ggplot(ds_m, aes(x=Age, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
-```
-
-![](main_files/figure-html/EDA-12.png)<!-- -->
-
-```r
 ds_m$AgeDecile = cut(ds_m$Age, c(-2000,7,59,200))
 
 ggplot(ds_m[ds_m$Pclass==1,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
 ```
 
-![](main_files/figure-html/EDA-13.png)<!-- -->
+![](main_files/figure-html/EDA-12.png)<!-- -->
 
 ```r
 ggplot(ds_m[ds_m$Pclass==2,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
 ```
 
-![](main_files/figure-html/EDA-14.png)<!-- -->
+![](main_files/figure-html/EDA-13.png)<!-- -->
 
 ```r
 ggplot(ds_m[ds_m$Pclass==3 & as.integer(ds_m$AgeDecile)<3,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
 ```
 
-![](main_files/figure-html/EDA-15.png)<!-- -->
+![](main_files/figure-html/EDA-14.png)<!-- -->
 
 ## Supporting Functions
 
@@ -315,34 +309,22 @@ trf_Age <- md_Age(dall[!is.na(dall$Age),])
 
 ```
 ##                 Overall
-## title         63.784117
-## isSingle      10.519996
-## SibSp         14.919887
-## Pclass        31.697105
-## r_SibSp_Parch 15.356186
-## CabinLet      15.938121
-## CabinNum      17.647262
-## CabinCnt       9.239219
-## Embarked      18.339170
-## cnt_ticket    35.759939
-## nFare         29.314488
-## I(Parch <= 2)  4.882813
-## I(SibSp > 1)   9.991564
-## Parch         15.167743
-## familySz      16.790179
+## title         66.924704
+## isSingle      13.691352
+## SibSp         14.356139
+## Pclass        32.968882
+## r_SibSp_Parch 16.046554
+## CabinLet      16.137229
+## CabinNum      18.700282
+## CabinCnt       7.404100
+## Embarked      19.242321
+## cnt_ticket    35.486976
+## nFare         30.331919
+## I(Parch <= 2)  6.455269
+## I(SibSp > 1)  10.179720
+## Parch         16.293392
+## familySz      15.216956
 ```
-
-```r
-ggplot(dall, aes(factor(title),Age)) + geom_boxplot()
-```
-
-![](main_files/figure-html/ManupulateData-1.png)<!-- -->
-
-```r
-ggplot(dall, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
-```
-
-![](main_files/figure-html/ManupulateData-2.png)<!-- -->
 
 ```r
 dall<-psttreatment(trf_Age,dall)
@@ -352,12 +334,12 @@ dall<-psttreatment(trf_Age,dall)
 ##              
 ##               (-2e+03,11] (11,15] (15,18] (18,30] (30,49] (49,59] (59,200]
 ##   (-2e+03,11]          88       0       1       1       0       0        0
-##   (11,15]               8       4       4       9       0       0        0
-##   (15,18]               3       3       6      61       5       0        0
-##   (18,30]               2       2       4     303     105       0        0
-##   (30,49]               0       0       2     105     216       4        0
+##   (11,15]               6       5       7       7       0       0        0
+##   (15,18]               3       3       5      63       4       0        0
+##   (18,30]               2       2       5     300     107       0        0
+##   (30,49]               0       0       1     106     216       4        0
 ##   (49,59]               0       0       0       9      52       9        0
-##   (59,200]              0       0       0       3      13      18        6
+##   (59,200]              0       0       0       3      14      17        6
 ```
 
 ```r
@@ -365,7 +347,23 @@ dall<-psttreatment(trf_Age,dall)
 
 ds <- dall[dall$src == 0,]
 dtest <- dall[dall$src == 1,]
+
+ggplot(ds, aes(factor(title),Age)) + geom_boxplot()
 ```
+
+![](main_files/figure-html/ManupulateData-1.png)<!-- -->
+
+```r
+ggplot(ds, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
+```
+
+![](main_files/figure-html/ManupulateData-2.png)<!-- -->
+
+```r
+ggplot(ds, aes(CabinLet, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
+```
+
+![](main_files/figure-html/ManupulateData-3.png)<!-- -->
 
 ## Modeling
 
@@ -414,27 +412,27 @@ varImp(tgbm2)
 ## 
 ##   only 20 most important variables shown (out of 34)
 ## 
-##             Overall
-## titleMr    100.0000
-## Sexmale     71.7568
-## p_Survived  58.8756
-## Pclass3     28.4592
-## CabinNum    25.6088
-## familySz    13.0912
-## titleOther   4.1919
-## EmbarkedS    3.9927
-## nFare        3.8902
-## cnt_ticket   1.2125
-## CabinCnt     0.8982
-## CabinLetE    0.7067
-## EmbarkedC    0.6552
-## CabinLetC    0.6420
-## CabinLetD    0.0000
-## Parch        0.0000
-## titleMrs     0.0000
-## Pclass2      0.0000
-## CabinLetA    0.0000
-## CabinLetF    0.0000
+##                      Overall
+## Sexmale             100.0000
+## titleMr              61.2048
+## p_Survived           60.7182
+## Pclass3              30.4270
+## CabinNum             24.4326
+## cnt_ticket           17.7509
+## nFare                11.4690
+## familySz              9.3618
+## EmbarkedS             6.5665
+## r_SibSp_Parch         4.2928
+## I(nFare/cnt_ticket)   4.2540
+## titleOther            4.1932
+## AgeDecile(18,30]      2.3851
+## AgeDecile(30,49]      1.4557
+## EmbarkedQ             1.2681
+## CabinLetC             1.1230
+## EmbarkedC             1.0743
+## CabinLetE             1.0427
+## titleMrs              1.0322
+## noAge                 0.6713
 ```
 
 ```r
@@ -449,12 +447,14 @@ bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-4, ntree=1001, do
 ```
 
 ```
-## mtry = 4  OOB error = 15.38% 
+## mtry = 4  OOB error = 17.28% 
 ## Searching left ...
-## mtry = 3 	OOB error = 15.94% 
-## -0.03649635 1e-04 
+## mtry = 3 	OOB error = 16.61% 
+## 0.03896104 1e-04 
+## mtry = 2 	OOB error = 17.28% 
+## -0.04054054 1e-04 
 ## Searching right ...
-## mtry = 6 	OOB error = 15.38% 
+## mtry = 6 	OOB error = 16.61% 
 ## 0 1e-04
 ```
 
@@ -492,25 +492,25 @@ varImp(trf)
 ## 
 ##                     Overall
 ## titleMr             100.000
-## p_Survived           98.452
-## Sexmale              87.216
-## CabinNum             34.620
-## cnt_ticket           34.588
-## nFare                34.151
-## I(nFare/cnt_ticket)  33.144
-## titleMiss            32.093
-## Pclass3              27.422
-## titleMrs             26.530
-## CabinCnt             23.465
-## familySz             23.357
-## r_SibSp_Parch        16.845
-## SibSp                13.568
-## Parch                10.484
-## EmbarkedS             9.426
-## AgeDecile(30,49]      9.003
-## AgeDecile(18,30]      7.735
-## Pclass2               7.160
-## EmbarkedC             6.896
+## Sexmale              94.286
+## p_Survived           88.616
+## CabinNum             35.237
+## titleMiss            33.810
+## cnt_ticket           32.785
+## I(nFare/cnt_ticket)  32.777
+## nFare                32.592
+## titleMrs             29.234
+## Pclass3              25.761
+## CabinCnt             22.872
+## familySz             22.245
+## r_SibSp_Parch        16.760
+## SibSp                14.003
+## Parch                10.590
+## EmbarkedS             8.848
+## AgeDecile(30,49]      7.790
+## EmbarkedC             7.327
+## AgeDecile(18,30]      6.622
+## Pclass2               6.487
 ```
 
 ## Resampling
@@ -533,16 +533,16 @@ summary(difValues)
 ## Lower diagonal: p-value for H0: difference = 0
 ## 
 ## Accuracy 
-##     RF     GBM       SVM      
-## RF         -0.009446  0.001537
-## GBM 0.2403            0.010983
-## SVM 1.0000 0.1945             
+##     RF GBM       SVM      
+## RF     -0.002220  0.002055
+## GBM 1             0.004275
+## SVM 1  1                  
 ## 
 ## Kappa 
-##     RF     GBM      SVM     
-## RF         -0.02300 -0.00137
-## GBM 0.1569           0.02163
-## SVM 1.0000 0.2782
+##     RF GBM        SVM       
+## RF     -0.0056698 -0.0007643
+## GBM 1              0.0049055
+## SVM 1  1
 ```
 
 ```r

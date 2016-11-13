@@ -63,7 +63,6 @@ ggplot(ds_m, aes(Embarked, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha
 ggplot(ds_m, aes(SibSp, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
 ggplot(ds_m, aes(Pclass, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
 ggplot(ds_m, aes(Parch, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
-ggplot(ds_m, aes(x=Age, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
 ds_m$AgeDecile = cut(ds_m$Age, c(-2000,7,59,200))
 
 ggplot(ds_m[ds_m$Pclass==1,], aes(x=(nFare), fill=AgeDecile, colour=AgeDecile)) + geom_density(adjust=1, alpha=0.1)
@@ -244,14 +243,15 @@ run_prediction <- function(tgbm2, trf, tsvm, dtest){
 dall<-pretreatment(dall)
 dall$GrpT = as.factor(dall$GrpT)
 trf_Age <- md_Age(dall[!is.na(dall$Age),])
-ggplot(dall, aes(factor(title),Age)) + geom_boxplot()
-ggplot(dall, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
 dall<-psttreatment(trf_Age,dall)
 #trf_Fare <- md_Fare(de <- dall[dall$cnt_ticket==1 & !is.na(dall$Fare),])
 
 ds <- dall[dall$src == 0,]
 dtest <- dall[dall$src == 1,]
 
+ggplot(ds, aes(factor(title),Age)) + geom_boxplot()
+ggplot(ds, aes(factor(title),Survived))  + geom_point(alpha=0.1) +geom_jitter(alpha=0.1)
+ggplot(ds, aes(CabinLet, Survived)) +geom_jitter(alpha=0.1) + geom_point(alpha=0.1)
 ```
 
 ## Modeling
