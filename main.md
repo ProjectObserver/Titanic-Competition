@@ -157,7 +157,7 @@ generate_cnt_by_Ticket<-function(dtf){
 ###### Using the piror, the influence of this variable could be reduced. 
 ###### This variable should have similar predictive power as title: Mr
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 2, dtest$nsample[i] - dtest$SurvivedTotal[i] + 4)
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 2)
   return (p)
 }
 
@@ -309,21 +309,21 @@ trf_Age <- md_Age(dall[!is.na(dall$Age),])
 
 ```
 ##                 Overall
-## title         66.924704
-## isSingle      13.691352
-## SibSp         14.356139
-## Pclass        32.968882
-## r_SibSp_Parch 16.046554
-## CabinLet      16.137229
-## CabinNum      18.700282
-## CabinCnt       7.404100
-## Embarked      19.242321
-## cnt_ticket    35.486976
-## nFare         30.331919
-## I(Parch <= 2)  6.455269
-## I(SibSp > 1)  10.179720
-## Parch         16.293392
-## familySz      15.216956
+## title         67.540630
+## isSingle      12.720985
+## SibSp         14.438831
+## Pclass        30.729539
+## r_SibSp_Parch 16.973595
+## CabinLet      16.426860
+## CabinNum      19.650212
+## CabinCnt      10.330565
+## Embarked      18.534428
+## cnt_ticket    37.029363
+## nFare         31.366519
+## I(Parch <= 2)  5.382498
+## I(SibSp > 1)   8.629845
+## Parch         16.908054
+## familySz      17.279107
 ```
 
 ```r
@@ -334,12 +334,12 @@ dall<-psttreatment(trf_Age,dall)
 ##              
 ##               (-2e+03,11] (11,15] (15,18] (18,30] (30,49] (49,59] (59,200]
 ##   (-2e+03,11]          88       0       1       1       0       0        0
-##   (11,15]               6       5       7       7       0       0        0
-##   (15,18]               3       3       5      63       4       0        0
-##   (18,30]               2       2       5     300     107       0        0
-##   (30,49]               0       0       1     106     216       4        0
-##   (49,59]               0       0       0       9      52       9        0
-##   (59,200]              0       0       0       3      14      17        6
+##   (11,15]               8       3       7       7       0       0        0
+##   (15,18]               3       4       4      62       5       0        0
+##   (18,30]               2       2       4     303     105       0        0
+##   (30,49]               0       0       2     104     216       5        0
+##   (49,59]               0       0       0       9      53       8        0
+##   (59,200]              0       0       0       3      14      18        5
 ```
 
 ```r
@@ -412,27 +412,27 @@ varImp(tgbm2)
 ## 
 ##   only 20 most important variables shown (out of 34)
 ## 
-##                      Overall
-## Sexmale             100.0000
-## titleMr              61.2048
-## p_Survived           60.7182
-## Pclass3              30.4270
-## CabinNum             24.4326
-## cnt_ticket           17.7509
-## nFare                11.4690
-## familySz              9.3618
-## EmbarkedS             6.5665
-## r_SibSp_Parch         4.2928
-## I(nFare/cnt_ticket)   4.2540
-## titleOther            4.1932
-## AgeDecile(18,30]      2.3851
-## AgeDecile(30,49]      1.4557
-## EmbarkedQ             1.2681
-## CabinLetC             1.1230
-## EmbarkedC             1.0743
-## CabinLetE             1.0427
-## titleMrs              1.0322
-## noAge                 0.6713
+##                     Overall
+## titleMr             100.000
+## Sexmale              83.879
+## p_Survived           70.281
+## Pclass3              29.379
+## CabinNum             26.632
+## cnt_ticket           26.254
+## nFare                 8.117
+## titleOther            5.760
+## EmbarkedS             5.656
+## familySz              5.126
+## r_SibSp_Parch         3.810
+## I(nFare/cnt_ticket)   3.706
+## CabinLetE             3.325
+## EmbarkedC             3.212
+## CabinCnt              2.992
+## AgeDecile(49,59]      1.917
+## AgeDecile(18,30]      1.595
+## CabinLetC             1.295
+## AgeDecile(30,49]      1.268
+## noAge                 1.219
 ```
 
 ```r
@@ -447,15 +447,15 @@ bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-4, ntree=1001, do
 ```
 
 ```
-## mtry = 4  OOB error = 17.28% 
+## mtry = 4  OOB error = 16.27% 
 ## Searching left ...
 ## mtry = 3 	OOB error = 16.61% 
-## 0.03896104 1e-04 
-## mtry = 2 	OOB error = 17.28% 
-## -0.04054054 1e-04 
+## -0.02068966 1e-04 
 ## Searching right ...
-## mtry = 6 	OOB error = 16.61% 
-## 0 1e-04
+## mtry = 6 	OOB error = 15.49% 
+## 0.04827586 1e-04 
+## mtry = 9 	OOB error = 16.05% 
+## -0.03623188 1e-04
 ```
 
 ![](main_files/figure-html/Modeling-3.png)<!-- -->
@@ -491,26 +491,26 @@ varImp(trf)
 ##   only 20 most important variables shown (out of 34)
 ## 
 ##                     Overall
-## titleMr             100.000
-## Sexmale              94.286
-## p_Survived           88.616
-## CabinNum             35.237
-## titleMiss            33.810
-## cnt_ticket           32.785
-## I(nFare/cnt_ticket)  32.777
-## nFare                32.592
-## titleMrs             29.234
-## Pclass3              25.761
-## CabinCnt             22.872
-## familySz             22.245
-## r_SibSp_Parch        16.760
-## SibSp                14.003
-## Parch                10.590
-## EmbarkedS             8.848
-## AgeDecile(30,49]      7.790
-## EmbarkedC             7.327
-## AgeDecile(18,30]      6.622
-## Pclass2               6.487
+## p_Survived          100.000
+## titleMr              79.425
+## Sexmale              73.556
+## CabinNum             28.711
+## cnt_ticket           27.225
+## I(nFare/cnt_ticket)  24.813
+## nFare                24.046
+## Pclass3              23.222
+## familySz             19.732
+## titleMiss            19.036
+## titleMrs             17.585
+## CabinCnt             14.915
+## r_SibSp_Parch        11.500
+## SibSp                11.328
+## EmbarkedS             7.612
+## AgeDecile(18,30]      7.584
+## AgeDecile(30,49]      7.342
+## Parch                 7.040
+## noAge                 6.136
+## EmbarkedC             5.881
 ```
 
 ## Resampling
@@ -533,16 +533,16 @@ summary(difValues)
 ## Lower diagonal: p-value for H0: difference = 0
 ## 
 ## Accuracy 
-##     RF GBM       SVM      
-## RF     -0.002220  0.002055
-## GBM 1             0.004275
-## SVM 1  1                  
+##     RF      GBM       SVM      
+## RF          -0.008151  0.016255
+## GBM 0.38137            0.024405
+## SVM 0.01037 7.58e-05           
 ## 
 ## Kappa 
-##     RF GBM        SVM       
-## RF     -0.0056698 -0.0007643
-## GBM 1              0.0049055
-## SVM 1  1
+##     RF        GBM       SVM     
+## RF            -0.01639   0.03202
+## GBM 0.4851917            0.04841
+## SVM 0.0236780 0.0003355
 ```
 
 ```r

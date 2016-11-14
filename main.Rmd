@@ -96,7 +96,7 @@ generate_cnt_by_Ticket<-function(dtf){
 ###### Using the piror, the influence of this variable could be reduced. 
 ###### This variable should have similar predictive power as title: Mr
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 2, dtest$nsample[i] - dtest$SurvivedTotal[i] + 4)
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 2)
   return (p)
 }
 
