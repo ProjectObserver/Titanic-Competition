@@ -96,7 +96,7 @@ generate_cnt_by_Ticket<-function(dtf){
 ###### Using the piror, the influence of this variable could be reduced. 
 ###### This variable should have similar predictive power as title: Mr
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 2)
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 0.5, dtest$nsample[i] - dtest$SurvivedTotal[i] + 0.5)
   return (p)
 }
 
@@ -231,9 +231,11 @@ psttreatment <- function(trf_Age, ds) {
 #### function to run the prediction
 run_prediction <- function(tgbm2, trf, tsvm, dtest){
   ## Run the data through the model
-  dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
-  dtest$pred.rf = predict(trf, dtest, "raw")
-  dtest$pred.svm = predict(tsvm, dtest, "raw")
+  
+  dtest$pred.tgbm2 <- predict(tgbm2, dtest, "raw")
+  dtest$pred.rf <- predict(trf, dtest, "raw")
+  dtest$pred.svm <- predict(tsvm, dtest, "raw")
+
   return(dtest)
 }
 ```
@@ -264,67 +266,82 @@ dtr<-ds
 
 lookup<-generate_n_Survived_GrpT(dtr)
 dtr<-add_info_by_name(dtr,c('GrpT','isMr'), lookup)
-dtr$nsample[dtr$GrpT == "XXXX"] = dtr$nsample[dtr$GrpT == "XXXX"] / 600
-dtr$SurvivedTotal[dtr$GrpT == "XXXX"] = dtr$SurvivedTotal[dtr$GrpT == "XXXX"] / 600
+dtr$nsample[dtr$GrpT == "XXXX"] = dtr$nsample[dtr$GrpT == "XXXX"] / 800
+dtr$SurvivedTotal[dtr$GrpT == "XXXX"] = dtr$SurvivedTotal[dtr$GrpT == "XXXX"] / 800
+
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_density(adjust=1, alpha=0.1)
 
-# train model using multiple methods
-tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9, 11),
-                          n.trees = (1:30)*10,
+
+run_gbm <- function(dtr){
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  # train model using multiple methods
+  tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
+                          n.trees = (1:15)*2,
                           shrinkage = 0.1,
                           n.minobsinnode = 10)
-tgbm2 = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+  tgbm2 <-
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
                 r_SibSp_Parch, 
-    data=dtr, method="gbm", tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", 
-    trControl=ctrl, verbose=FALSE
-  )
-varImp(tgbm2)
+      data=dtr, method="gbm", tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", 
+      trControl=ctrl, verbose=FALSE
+    )
+  varImp(tgbm2)
+  return (tgbm2)
+}
 
-x <- with (dtr,
-  cbind(
+run_rf <- function(dtr){
+  x <- with (dtr,
+    cbind(
         Sex, p_Survived, cnt_ticket, title, Pclass, CabinLet, CabinNum, CabinCnt, noAge, AgeDecile, 
         SibSp, Parch, Embarked, familySz, nFare, r_SibSp_Parch
+    )
   )
-)
-
-bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-4, ntree=1001, doBest = F)
-tune_grid <- expand.grid(.mtry=c(bestmtry[bestmtry[,2] == min(bestmtry[,2]),1]))
-
-trf = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet+ CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+  bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-5, ntree=201, doBest = F)
+  tune_grid <- expand.grid(.mtry=c(bestmtry[bestmtry[,2] == min(bestmtry[,2]),1]))
+  
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  trf<- 
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet+ CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
                 r_SibSp_Parch, 
-    data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc=c("center", "scale"), 
-    verbose=FALSE, ntree=1001
-  )
+      data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc=c("center", "scale"), 
+      verbose=FALSE, ntree=201
+    )
+  varImp(trf)
+  return(trf)
+}
 
-#method="svmLinear","svmPoly" svmRadial
-tsvm = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
-                r_SibSp_Parch, 
-    tuneGrid = data.frame(.C = seq(0,0.95,0.05) + 0.05), data=dtr, method="svmLinear", metric="Kappa", 
-    trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
-  )
+run_svm <- function(dtr){
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  #method="svmLinear","svmPoly" svmRadial
+  tsvm <-
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
+                r_SibSp_Parch, tuneGrid = data.frame(.C = seq(0,0.90,0.1) + 0.1),
+                data=dtr,  method="svmLinear", metric="Kappa", 
+      trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
+    )
+  return(tsvm)
+}
 
-varImp(trf)
 ```
 
 ## Resampling
 ```{r Resampling}
-resampls = resamples(list(RF = trf,
-                          GBM = tgbm2, SVM = tsvm
-                         ))
-difValues = diff(resampls)
-summary(difValues)
-bwplot(resampls, layout=c(2,1))
+
+#resampls = resamples(list(RF = trf[1],
+#                          GBM = tgbm2[1], SVM = tsvm[1]
+#                         ))
+#difValues = diff(resampls)
+#summary(difValues)
+#bwplot(resampls, layout=c(2,1))
+
 ```
 
 ## Generate Summit File for Competition
@@ -339,22 +356,30 @@ dtest$SurvivedTotal[is.na(dtest$SurvivedTotal)] = 0
 dtest$nsample[is.na(dtest$nsample)] = 0
 
 ## Run the data through the model
-dtest$nsample[dtest$GrpT == "XXXX"] = dtest$nsample[dtest$GrpT == "XXXX"] / 600
-dtest$SurvivedTotal[dtest$GrpT == "XXXX"] = dtest$SurvivedTotal[dtest$GrpT == "XXXX"] / 600
+dtest$nsample[dtest$GrpT == "XXXX"] = dtest$nsample[dtest$GrpT == "XXXX"] / 800
+dtest$SurvivedTotal[dtest$GrpT == "XXXX"] = dtest$SurvivedTotal[dtest$GrpT == "XXXX"] / 800
 
-n <- 10001
-a <-  foreach (i = 1:n, .combine = rbind) %dopar%
-{
-  dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
-  dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
-  as.integer(dtest$pred.tgbm2) - 1 + as.integer(dtest$pred.rf) - 1 + as.integer(dtest$pred.svm) - 1
+pred.vote = rep(0,nrow(dtest))
+for (i in 1:10){
+  tgbm2<-run_gbm(dtr)
+  trf <- run_rf(dtr)
+  tsvm <- run_svm(dtr)
+  n <- 1000
+  a <-  foreach (i = 1:n, .combine = rbind) %dopar%
+  {
+    dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
+    dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
+    as.integer(dtest$pred.tgbm2) - 1 + as.integer(dtest$pred.rf) - 1 + as.integer(dtest$pred.svm) - 1
+  }
+  pred.vote = pred.vote + colSums(a)
 }
-pred.vote = colSums(a)
+
 hist(pred.vote)
-dtest$pred.vote = as.integer(pred.vote>=as.integer(n*3/2))
+dtest$pred.vote = as.integer(pred.vote>=as.integer(n*10*3/2))
 
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)))
 names(dSummit)=c("PassengerId","Survived")
 write.table(dSummit,"./data/pred.csv", row.names=F, col.names = T, sep=",", quote=FALSE)
+
 ```

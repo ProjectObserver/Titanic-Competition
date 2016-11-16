@@ -157,7 +157,7 @@ generate_cnt_by_Ticket<-function(dtf){
 ###### Using the piror, the influence of this variable could be reduced. 
 ###### This variable should have similar predictive power as title: Mr
 generate_BAY_p_ds<-function(i, dtest){
-  p <- rbeta(1, dtest$SurvivedTotal[i] + 1, dtest$nsample[i] - dtest$SurvivedTotal[i] + 2)
+  p <- rbeta(1, dtest$SurvivedTotal[i] + 0.5, dtest$nsample[i] - dtest$SurvivedTotal[i] + 0.5)
   return (p)
 }
 
@@ -292,9 +292,11 @@ psttreatment <- function(trf_Age, ds) {
 #### function to run the prediction
 run_prediction <- function(tgbm2, trf, tsvm, dtest){
   ## Run the data through the model
-  dtest$pred.tgbm2 = predict(tgbm2, dtest, "raw")
-  dtest$pred.rf = predict(trf, dtest, "raw")
-  dtest$pred.svm = predict(tsvm, dtest, "raw")
+  
+  dtest$pred.tgbm2 <- predict(tgbm2, dtest, "raw")
+  dtest$pred.rf <- predict(trf, dtest, "raw")
+  dtest$pred.svm <- predict(tsvm, dtest, "raw")
+
   return(dtest)
 }
 ```
@@ -309,21 +311,21 @@ trf_Age <- md_Age(dall[!is.na(dall$Age),])
 
 ```
 ##                 Overall
-## title         67.540630
-## isSingle      12.720985
-## SibSp         14.438831
-## Pclass        30.729539
-## r_SibSp_Parch 16.973595
-## CabinLet      16.426860
-## CabinNum      19.650212
-## CabinCnt      10.330565
-## Embarked      18.534428
-## cnt_ticket    37.029363
-## nFare         31.366519
-## I(Parch <= 2)  5.382498
-## I(SibSp > 1)   8.629845
-## Parch         16.908054
-## familySz      17.279107
+## title         67.967188
+## isSingle      12.033145
+## SibSp         13.525075
+## Pclass        32.388496
+## r_SibSp_Parch 17.241368
+## CabinLet      15.410062
+## CabinNum      17.142749
+## CabinCnt       6.306643
+## Embarked      19.115420
+## cnt_ticket    35.941593
+## nFare         28.839111
+## I(Parch <= 2)  6.422204
+## I(SibSp > 1)  10.580379
+## Parch         14.728102
+## familySz      16.800320
 ```
 
 ```r
@@ -334,12 +336,12 @@ dall<-psttreatment(trf_Age,dall)
 ##              
 ##               (-2e+03,11] (11,15] (15,18] (18,30] (30,49] (49,59] (59,200]
 ##   (-2e+03,11]          88       0       1       1       0       0        0
-##   (11,15]               8       3       7       7       0       0        0
+##   (11,15]               8       4       6       7       0       0        0
 ##   (15,18]               3       4       4      62       5       0        0
-##   (18,30]               2       2       4     303     105       0        0
-##   (30,49]               0       0       2     104     216       5        0
-##   (49,59]               0       0       0       9      53       8        0
-##   (59,200]              0       0       0       3      14      18        5
+##   (18,30]               2       2       5     301     106       0        0
+##   (30,49]               0       0       2     105     215       5        0
+##   (49,59]               0       0       0       9      52       9        0
+##   (59,200]              0       0       0       3      14      19        4
 ```
 
 ```r
@@ -376,8 +378,9 @@ dtr<-ds
 
 lookup<-generate_n_Survived_GrpT(dtr)
 dtr<-add_info_by_name(dtr,c('GrpT','isMr'), lookup)
-dtr$nsample[dtr$GrpT == "XXXX"] = dtr$nsample[dtr$GrpT == "XXXX"] / 600
-dtr$SurvivedTotal[dtr$GrpT == "XXXX"] = dtr$SurvivedTotal[dtr$GrpT == "XXXX"] / 600
+dtr$nsample[dtr$GrpT == "XXXX"] = dtr$nsample[dtr$GrpT == "XXXX"] / 400
+dtr$SurvivedTotal[dtr$GrpT == "XXXX"] = dtr$SurvivedTotal[dtr$GrpT == "XXXX"] / 400
+
 dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
 ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_histogram(alpha=0.5)
 ```
@@ -391,165 +394,73 @@ ggplot(dtr, aes(x=p_Survived, fill=Survived, colour=Survived)) + geom_density(ad
 ![](main_files/figure-html/Modeling-2.png)<!-- -->
 
 ```r
-# train model using multiple methods
-tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9, 11),
-                          n.trees = (1:30)*10,
+run_gbm <- function(dtr){
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  # train model using multiple methods
+  tune_grid <-  expand.grid(interaction.depth = c(1, 3, 9),
+                          n.trees = (1:15)*2,
                           shrinkage = 0.1,
                           n.minobsinnode = 10)
-tgbm2 = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+  tgbm2 <-
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
                 r_SibSp_Parch, 
-    data=dtr, method="gbm", tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", 
-    trControl=ctrl, verbose=FALSE
-  )
-varImp(tgbm2)
-```
+      data=dtr, method="gbm", tuneGrid=tune_grid, preProc = c("center", "scale"), metric="Kappa", 
+      trControl=ctrl, verbose=FALSE
+    )
+  varImp(tgbm2)
+  return (tgbm2)
+}
 
-```
-## gbm variable importance
-## 
-##   only 20 most important variables shown (out of 34)
-## 
-##                     Overall
-## titleMr             100.000
-## Sexmale              83.879
-## p_Survived           70.281
-## Pclass3              29.379
-## CabinNum             26.632
-## cnt_ticket           26.254
-## nFare                 8.117
-## titleOther            5.760
-## EmbarkedS             5.656
-## familySz              5.126
-## r_SibSp_Parch         3.810
-## I(nFare/cnt_ticket)   3.706
-## CabinLetE             3.325
-## EmbarkedC             3.212
-## CabinCnt              2.992
-## AgeDecile(49,59]      1.917
-## AgeDecile(18,30]      1.595
-## CabinLetC             1.295
-## AgeDecile(30,49]      1.268
-## noAge                 1.219
-```
-
-```r
-x <- with (dtr,
-  cbind(
+run_rf <- function(dtr){
+  x <- with (dtr,
+    cbind(
         Sex, p_Survived, cnt_ticket, title, Pclass, CabinLet, CabinNum, CabinCnt, noAge, AgeDecile, 
         SibSp, Parch, Embarked, familySz, nFare, r_SibSp_Parch
+    )
   )
-)
-
-bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-4, ntree=1001, doBest = F)
-```
-
-```
-## mtry = 4  OOB error = 16.27% 
-## Searching left ...
-## mtry = 3 	OOB error = 16.61% 
-## -0.02068966 1e-04 
-## Searching right ...
-## mtry = 6 	OOB error = 15.49% 
-## 0.04827586 1e-04 
-## mtry = 9 	OOB error = 16.05% 
-## -0.03623188 1e-04
-```
-
-![](main_files/figure-html/Modeling-3.png)<!-- -->
-
-```r
-tune_grid <- expand.grid(.mtry=c(bestmtry[bestmtry[,2] == min(bestmtry[,2]),1]))
-
-trf = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet+ CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
+  bestmtry <- tuneRF(x, dtr$Survived, stepFactor=1.5, improve=1e-5, ntree=201, doBest = F)
+  tune_grid <- expand.grid(.mtry=c(bestmtry[bestmtry[,2] == min(bestmtry[,2]),1]))
+  
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  trf<- 
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet+ CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
                 r_SibSp_Parch, 
-    data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc=c("center", "scale"), 
-    verbose=FALSE, ntree=1001
-  )
+      data=dtr, method="rf", metric="Kappa", tuneGrid=tune_grid, trControl=ctrl, preProc=c("center", "scale"), 
+      verbose=FALSE, ntree=201
+    )
+  varImp(trf)
+  return(trf)
+}
 
-#method="svmLinear","svmPoly" svmRadial
-tsvm = 
-  train(
-    Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
-                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + nFare + I(nFare/cnt_ticket) + 
-                r_SibSp_Parch, 
-    tuneGrid = data.frame(.C = seq(0,0.95,0.05) + 0.05), data=dtr, method="svmLinear", metric="Kappa", 
-    trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
-  )
-
-varImp(trf)
-```
-
-```
-## rf variable importance
-## 
-##   only 20 most important variables shown (out of 34)
-## 
-##                     Overall
-## p_Survived          100.000
-## titleMr              79.425
-## Sexmale              73.556
-## CabinNum             28.711
-## cnt_ticket           27.225
-## I(nFare/cnt_ticket)  24.813
-## nFare                24.046
-## Pclass3              23.222
-## familySz             19.732
-## titleMiss            19.036
-## titleMrs             17.585
-## CabinCnt             14.915
-## r_SibSp_Parch        11.500
-## SibSp                11.328
-## EmbarkedS             7.612
-## AgeDecile(18,30]      7.584
-## AgeDecile(30,49]      7.342
-## Parch                 7.040
-## noAge                 6.136
-## EmbarkedC             5.881
+run_svm <- function(dtr){
+  dtr$p_Survived<-sapply(1 : length(dtr$nsample), generate_BAY_p_ds, dtest =dtr)
+  #method="svmLinear","svmPoly" svmRadial
+  tsvm <-
+    train(
+      Survived ~  Sex + p_Survived + cnt_ticket + title + Pclass + CabinLet + CabinNum + CabinCnt + 
+                noAge + AgeDecile + SibSp + Parch + Embarked + familySz + I(nFare/cnt_ticket) + 
+                r_SibSp_Parch, tuneGrid = data.frame(.C = seq(0,0.90,0.1) + 0.1),
+                data=dtr,  method="svmLinear", metric="Kappa", 
+      trControl=ctrl, verbose=FALSE, preProc = c("center", "scale")
+    )
+  return(tsvm)
+}
 ```
 
 ## Resampling
 
 ```r
-resampls = resamples(list(RF = trf,
-                          GBM = tgbm2, SVM = tsvm
-                         ))
-difValues = diff(resampls)
-summary(difValues)
+#resampls = resamples(list(RF = trf[1],
+#                          GBM = tgbm2[1], SVM = tsvm[1]
+#                         ))
+#difValues = diff(resampls)
+#summary(difValues)
+#bwplot(resampls, layout=c(2,1))
 ```
-
-```
-## 
-## Call:
-## summary.diff.resamples(object = difValues)
-## 
-## p-value adjustment: bonferroni 
-## Upper diagonal: estimates of the difference
-## Lower diagonal: p-value for H0: difference = 0
-## 
-## Accuracy 
-##     RF      GBM       SVM      
-## RF          -0.008151  0.016255
-## GBM 0.38137            0.024405
-## SVM 0.01037 7.58e-05           
-## 
-## Kappa 
-##     RF        GBM       SVM     
-## RF            -0.01639   0.03202
-## GBM 0.4851917            0.04841
-## SVM 0.0236780 0.0003355
-```
-
-```r
-bwplot(resampls, layout=c(2,1))
-```
-
-![](main_files/figure-html/Resampling-1.png)<!-- -->
 
 ## Generate Summit File for Competition
 
@@ -563,24 +474,220 @@ dtest$SurvivedTotal[is.na(dtest$SurvivedTotal)] = 0
 dtest$nsample[is.na(dtest$nsample)] = 0
 
 ## Run the data through the model
-dtest$nsample[dtest$GrpT == "XXXX"] = dtest$nsample[dtest$GrpT == "XXXX"] / 600
-dtest$SurvivedTotal[dtest$GrpT == "XXXX"] = dtest$SurvivedTotal[dtest$GrpT == "XXXX"] / 600
+dtest$nsample[dtest$GrpT == "XXXX"] = dtest$nsample[dtest$GrpT == "XXXX"] / 400
+dtest$SurvivedTotal[dtest$GrpT == "XXXX"] = dtest$SurvivedTotal[dtest$GrpT == "XXXX"] / 400
 
-n <- 10001
-a <-  foreach (i = 1:n, .combine = rbind) %dopar%
-{
-  dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
-  dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
-  as.integer(dtest$pred.tgbm2) - 1 + as.integer(dtest$pred.rf) - 1 + as.integer(dtest$pred.svm) - 1
+pred.vote = rep(0,nrow(dtest))
+for (i in 1:10){
+  tgbm2<-run_gbm(dtr)
+  trf <- run_rf(dtr)
+  tsvm <- run_svm(dtr)
+  n <- 1000
+  a <-  foreach (i = 1:n, .combine = rbind) %dopar%
+  {
+    dtest$p_Survived<-sapply(1 : length(dtest$nsample), generate_BAY_p_ds, dtest =dtest)
+    dtest<-run_prediction(tgbm2, trf, tsvm, dtest)
+    as.integer(dtest$pred.tgbm2) - 1 + as.integer(dtest$pred.rf) - 1 + as.integer(dtest$pred.svm) - 1
+  }
+  pred.vote = pred.vote + colSums(a)
 }
-pred.vote = colSums(a)
-hist(pred.vote)
+```
+
+```
+## Loading required package: gbm
+```
+
+```
+## Loading required package: survival
+```
+
+```
+## 
+## Attaching package: 'survival'
+```
+
+```
+## The following object is masked from 'package:caret':
+## 
+##     cluster
+```
+
+```
+## Loading required package: splines
+```
+
+```
+## Loaded gbm 2.1.1
+```
+
+```
+## Loading required package: plyr
+```
+
+```
+## 
+## Attaching package: 'plyr'
+```
+
+```
+## The following object is masked from 'package:DMwR':
+## 
+##     join
+```
+
+```
+## mtry = 4  OOB error = 12.57% 
+## Searching left ...
+## mtry = 3 	OOB error = 14.03% 
+## -0.1160714 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.02% 
+## -0.03571429 1e-05
+```
+
+```
+## Loading required package: kernlab
+```
+
+```
+## 
+## Attaching package: 'kernlab'
+```
+
+```
+## The following object is masked from 'package:ggplot2':
+## 
+##     alpha
 ```
 
 ![](main_files/figure-html/Generate_Summit-1.png)<!-- -->
 
+```
+## mtry = 4  OOB error = 12.68% 
+## Searching left ...
+## mtry = 3 	OOB error = 12.91% 
+## -0.01769912 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 12.68% 
+## 0 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-2.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.91% 
+## Searching left ...
+## mtry = 3 	OOB error = 12.57% 
+## 0.02608696 1e-05 
+## mtry = 2 	OOB error = 13.92% 
+## -0.1071429 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.24% 
+## -0.05357143 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-3.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.79% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.69% 
+## -0.07017544 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.02% 
+## -0.01754386 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-4.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.79% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.36% 
+## -0.04385965 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 12.46% 
+## 0.02631579 1e-05 
+## mtry = 9 	OOB error = 13.47% 
+## -0.08108108 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-5.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.01% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.47% 
+## -0.1214953 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.58% 
+## -0.1308411 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-6.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.91% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.36% 
+## -0.03478261 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 12.68% 
+## 0.0173913 1e-05 
+## mtry = 9 	OOB error = 12.91% 
+## -0.01769912 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-7.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 12.68% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.36% 
+## -0.05309735 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.02% 
+## -0.02654867 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-8.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 13.24% 
+## Searching left ...
+## mtry = 3 	OOB error = 12.91% 
+## 0.02542373 1e-05 
+## mtry = 2 	OOB error = 13.92% 
+## -0.07826087 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.24% 
+## -0.02608696 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-9.png)<!-- -->
+
+```
+## mtry = 4  OOB error = 13.36% 
+## Searching left ...
+## mtry = 3 	OOB error = 13.13% 
+## 0.01680672 1e-05 
+## mtry = 2 	OOB error = 13.13% 
+## 0 1e-05 
+## Searching right ...
+## mtry = 6 	OOB error = 13.8% 
+## -0.05128205 1e-05
+```
+
+![](main_files/figure-html/Generate_Summit-10.png)<!-- -->
+
 ```r
-dtest$pred.vote = as.integer(pred.vote>=as.integer(n*3/2))
+hist(pred.vote)
+```
+
+![](main_files/figure-html/Generate_Summit-11.png)<!-- -->
+
+```r
+dtest$pred.vote = as.integer(pred.vote>=as.integer(n*10*3/2))
 
 ## Format the summit file and save to ./data/pred.csv
 dSummit<-as.data.frame(cbind(dtest$PassengerId,as.integer(dtest$pred.vote)))
